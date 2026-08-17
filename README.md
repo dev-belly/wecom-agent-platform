@@ -203,6 +203,16 @@ git push
 | 量化分析 | 多因子排行榜、风险因子卡片、财报三大表可视化、因子回测 KPI |
 | 指标栏 | Recall@10、Precision@3、最近延迟 |
 
+## 界面预览
+
+> 线上体验（GitHub Pages）：https://dev-belly.github.io/wecom-agent-platform/
+
+### 量化分析页（含内嵌回测仪表盘）
+![量化分析页 - 多因子排行榜/风险因子/财报/回测仪表盘](scripts/shot/shot_quant.png)
+
+### 对话页（因子查询 + 工具调用追踪）
+![对话页 - 风险因子查询与检索链路可视化](scripts/shot/shot_chat.png)
+
 ## 项目结构（完整）
 
 ```
