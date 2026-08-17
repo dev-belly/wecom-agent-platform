@@ -1,3 +1,4 @@
+import type { UIEvent } from 'react'
 import type { QuantData, BacktestData, LeaderRow, ReportData, StockFactor } from '../types'
 import { QUANT_DATA } from '../demo/quant'
 
@@ -238,8 +239,48 @@ function BacktestNote({ bt }: { bt: BacktestData }) {
         回测区间 {bt.meta.start} ~ {bt.meta.end}，初始资金 ¥{bt.meta.initial_cash.toLocaleString()}，
         A 股（{bt.meta.market}）多空仅做多。信号于第 i 日收盘生成、第 i+1 日开盘撮合（杜绝前视），
         含 120 日 warmup、T+1、次日均价与交易费用，期末强制平仓。
-        完整权益曲线 / 交易明细 / 指标仪表盘见 <span className="font-mono text-teal">data/backtest/index.html</span>
-        （由回测明算专家模板渲染）。
+        下方为完整权益曲线 / 回撤 / 交易明细 / 指标解读仪表盘（由「回测明算」专家模板渲染，同源内嵌）。
+      </p>
+    </section>
+  )
+}
+
+function BacktestDashboard({ bt }: { bt: BacktestData }) {
+  const url = import.meta.env.BASE_URL + 'backtest/momentum_688001SH.html'
+  const onLoad = (e: UIEvent<HTMLIFrameElement>) => {
+    // 同源：确保仪表盘以暗色呈现，贴合整体 UI
+    try {
+      const doc = e.currentTarget.contentDocument
+      if (doc) {
+        doc.documentElement.setAttribute('data-theme', 'dark')
+        const apply = () => doc.documentElement.setAttribute('data-theme', 'dark')
+        const obs = new MutationObserver(apply)
+        obs.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+      }
+    } catch {
+      /* 跨域安全限制，忽略 */
+    }
+  }
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-fg">回测仪表盘（专家模板 · 同源内嵌）</h2>
+        <a href={url} target="_blank" rel="noreferrer" className="text-[11px] text-teal hover:underline font-mono">
+          新标签打开 ↗
+        </a>
+      </div>
+      <div className="rounded-xl border border-line overflow-hidden bg-surface">
+        <iframe
+          src={url}
+          title={`回测仪表盘 ${bt.meta.symbol}`}
+          onLoad={onLoad}
+          className="w-full block"
+          style={{ height: '1280px', border: 0 }}
+        />
+      </div>
+      <p className="text-[11px] text-muted mt-2">
+        策略 {bt.meta.strategy_name}：权益曲线、回撤带、交易明细与指标解读一图尽览；数据由
+        <span className="font-mono text-teal"> src/factors/factor_backtest.py </span>真实回测导出。
       </p>
     </section>
   )
@@ -262,6 +303,7 @@ export default function QuantView() {
         <RiskCards stocks={q.per_stock} />
         <Reports reports={q.reports} />
         <BacktestNote bt={q.backtest} />
+        <BacktestDashboard bt={q.backtest} />
       </div>
     </div>
   )

@@ -19,7 +19,13 @@ await q.goto(URL, { waitUntil: 'networkidle' })
 await sleep(700)
 await q.getByRole('button', { name: '量化分析' }).click()
 await sleep(900)
-await q.screenshot({ path: 'scripts/shot/shot_quant.png', fullPage: true })
+// 等待内嵌回测仪表盘 iframe 渲染（含 CDN 库与图表）
+const qframe = q.frameLocator('iframe[title^="回测仪表盘"]')
+await qframe.locator('canvas').first().waitFor({ timeout: 20000 }).catch(() => {})
+await q.waitForTimeout(1800)
+// QuantView 为内部滚动容器，fullPage 不生效；改截内容元素以获取完整高度（含仪表盘）
+const qContent = q.locator('div.max-w-6xl')
+await qContent.screenshot({ path: 'scripts/shot/shot_quant.png' })
 console.log('saved shot_quant.png')
 await q.close()
 
