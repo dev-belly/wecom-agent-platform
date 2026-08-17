@@ -81,6 +81,79 @@ const SCENARIOS: { match: RegExp; build: (q: string) => DemoResult }[] = [
       },
     }),
   },
+  {
+    match: /风险因子|Beta|Sharpe|索提诺|最大回撤|VaR|波动率/,
+    build: () => ({
+      content:
+        '**星辰科技（688001.SH）** 风险因子测算（基准：合成沪深300）：\n\n' +
+        '- **年化收益**：+49.83%　**年化波动**：29.23%\n' +
+        '- **夏普比率**：1.50　**索提诺比率**：1.55\n' +
+        '- **最大回撤**：-31.41%　**卡玛比率**：1.59\n' +
+        '- **Beta**：1.12　**年化 Alpha**：+48.86%\n' +
+        '- **VaR95（年）**：-43.9%　**CVaR95（年）**：-57.6%\n\n' +
+        '高 Beta + 高波动 + 高夏普，属高弹性成长风格；VaR 提示极端日下行可达四成以上，需配合仓位管理。',
+      trace: {
+        intent: 'risk_factor_query',
+        tool: 'risk_factor_query',
+        params: { code: '688001.SH' },
+        latencyMs: 358,
+        retrieved: [
+          { text: '风险因子 | Beta:1.12 | Sharpe:1.50 | MaxDD:-31.41%', score: 0.91, source: 'fusion', rerankScore: 0.88 },
+          { text: '风险因子 | VaR95:-43.9% | CVaR95:-57.6% | Calmar:1.59', score: 0.86, source: 'vector', rerankScore: 0.84 },
+          { text: '风险因子 | vol:29.23% | Sortino:1.55 | Alpha:+48.86%', score: 0.82, source: 'bm25', rerankScore: 0.80 },
+        ],
+      },
+    }),
+  },
+  {
+    match: /财报|ROE|毛利率|资产负债率|流动比率|三大表/,
+    build: () => ({
+      content:
+        '**远创新能（300750.SZ）** 财报分析（2022–2025）：\n\n' +
+        '- **最新毛利率**：16.99%　**净利率**：-2.57%\n' +
+        '- **ROE**：-3.37%　**资产负债率**：47.93%\n' +
+        '- **流动比率**：1.48　**经营现金流/净利润**：1.14\n' +
+        '- **营收同比**：+23.51%　**净利润同比**：+144.3%\n\n' +
+        '⚠ **异常预警**：毛利率 < 20%（盈利空间偏薄）。营收高增但净利率仍为负，处于盈利修复早期，需关注毛利率能否回升。',
+      trace: {
+        intent: 'financial_report_query',
+        tool: 'financial_report_query',
+        params: { code: '300750.SZ' },
+        latencyMs: 401,
+        retrieved: [
+          { text: '财报 | 300750.SZ | 毛利率:16.99% | 净利率:-2.57%', score: 0.9, source: 'fusion', rerankScore: 0.87 },
+          { text: '财报 | ROE:-3.37% | 资产负债率:47.93% | 流动比率:1.48', score: 0.85, source: 'vector', rerankScore: 0.82 },
+          { text: '财报 | 异常:毛利率<20% | 营收同比:+23.51%', score: 0.81, source: 'bm25', rerankScore: 0.78 },
+        ],
+      },
+    }),
+  },
+  {
+    match: /因子挖掘|因子|排行榜|多因子|选股/,
+    build: () => ({
+      content:
+        '**多因子综合排行榜**（动量 / 价值 / 质量 / 成长 / 低波，截面 z-score 合成）：\n\n' +
+        '| 排名 | 标的 | 综合得分 |\n' +
+        '| --- | --- | --- |\n' +
+        '| #1 | 黔风白酒 | +0.95 |\n' +
+        '| #2 | 星辰科技 | +0.72 |\n' +
+        '| #3 | 平安保融 | -0.26 |\n' +
+        '| #4 | 五粮醇香 | -0.68 |\n' +
+        '| #5 | 远创新能 | -0.76 |\n\n' +
+        '黔风白酒在价值、质量、低波三项占优，星辰科技动量最强，二者综合领先。详见顶部「量化分析」视图。',
+      trace: {
+        intent: 'factor_mining',
+        tool: 'factor_mining',
+        params: {},
+        latencyMs: 372,
+        retrieved: [
+          { text: '因子挖掘 | 黔风白酒 综合+0.95 | 价值z+1.18 质量z+1.17', score: 0.88, source: 'fusion', rerankScore: 0.85 },
+          { text: '因子挖掘 | 星辰科技 综合+0.72 | 动量z+1.07', score: 0.84, source: 'vector', rerankScore: 0.81 },
+          { text: '因子挖掘 | 远创新能 综合-0.76 | 成长z+0.73', score: 0.79, source: 'bm25', rerankScore: 0.76 },
+        ],
+      },
+    }),
+  },
 ]
 
 const FALLBACK: DemoResult = {
@@ -110,8 +183,9 @@ export function welcomeMessage(): Message {
     content:
       '👋 欢迎使用 **企微智能运营 Agent 平台**（演示模式）。\n\n' +
       '本平台面向金融合同与产品要素查询，底层为 BM25 + Dense Vector + Rerank 混合检索链路，' +
-      '并通过 LangGraph 编排 8 类业务工具。\n\n' +
-      '当前为 **Demo 模式**（内置样例数据）。如需连接真实后端，请在右上角切换到 Live 模式并填写 API 地址。',
+      '并通过 LangGraph 编排 11 类业务工具（含风险因子、财报分析、因子挖掘）。\n\n' +
+      '点击右上角 **「量化分析」** 可查看多因子排行榜、风险因子卡片与财报可视化；' +
+      '或直接提问：「星辰科技的风险因子」「远创新能的财报」「因子排行榜」。',
     trace: {
       intent: 'general',
       tool: 'general',

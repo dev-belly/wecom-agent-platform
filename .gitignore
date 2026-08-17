@@ -12,6 +12,9 @@ dist/
 
 # Data (raw PDFs, vectors)
 data/pdf_cache/
+data/vectors/
+# 回测生成的仪表盘 HTML（由脚本再生，体积大）
+data/backtest/*.html
 *.bin
 
 # IDE / OS

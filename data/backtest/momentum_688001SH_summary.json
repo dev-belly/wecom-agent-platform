@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "strategy_name": "动量因子(ROC20/60) 688001.SH",
+    "symbol": "688001.SH",
+    "start": "2023-06-19",
+    "end": "2025-12-31",
+    "initial_cash": 1000000.0,
+    "window_start_value": 994544.1,
+    "final_value": 2273827.95,
+    "market": "china_a",
+    "generated_at": "2026-08-17T17:27:25+08:00"
+  },
+  "summary": {
+    "total_return_pct": 128.63017839027955,
+    "annual_return_pct": 36.9964930975585,
+    "max_drawdown_pct": 8.858550576870428,
+    "sharpe": 2.36728312833478,
+    "win_rate_pct": 75.0,
+    "total_trades": 16
+  }
+}

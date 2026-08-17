@@ -8,8 +8,11 @@
 |------|---------|------|
 | PDF 结构化解析 | pdfplumber + PyMuPDF，跨页表格合并，字段标准化 | 80 份 PDF → 结构化 JSON |
 | 混合检索 | BM25 + bge-large-zh + bge-reranker-v2-m3，RRF 融合 | Recall@10 ≥91%, Precision@3 ≥87% |
-| 多工具 Agent | LangGraph StateGraph，4 节点流水线 | 8 类业务工具，可追踪输出 |
+| 多工具 Agent | LangGraph StateGraph，4 节点流水线 | 11 类业务工具，可追踪输出 |
 | LLM 推理 | vLLM 私有化 Qwen3-14B AWQ | ~6s → <0.5s |
+| 量化因子引擎 | CAPM 风险因子 + 多因子 z-score 排行榜（向量化、无前视） | Beta/Sharpe/Sortino/VaR/CVaR 等 12 项 |
+| 财报分析 | 三大表解析 → 财务比率 → 同比趋势 → 异常预警 | ROE/毛利率/资产负债率等 11 项 |
+| 因子回测 | 动量因子策略回测（A 股合规：warmup/次日均价/T+1/费用） | 标准三件套 + 专家仪表盘 |
 
 ## 项目结构
 
@@ -23,7 +26,13 @@
 │   ├── agents/
 │   │   └── financial_agent.py   # LangGraph Agent 引擎
 │   ├── tools/
-│   │   └── business_tools.py    # 8 类业务工具
+│   │   └── business_tools.py    # 11 类业务工具
+│   ├── factors/                 # 量化因子 + 财报分析
+│   │   ├── demo_data.py         # 确定性合成行情/财报
+│   │   ├── risk_factors.py      # 风险因子 + 多因子排行榜
+│   │   ├── financial_report.py  # 三大表解析/比率/异常预警
+│   │   ├── factor_backtest.py   # 动量因子回测(标准三件套+仪表盘)
+│   │   └── dashboard/           # 回测仪表盘模板(专家提供)
 │   ├── retrieval/
 │   │   └── hybrid_retriever.py  # BM25+Vector+Rerank 检索管线
 │   ├── parsers/
@@ -96,7 +105,7 @@ curl -X POST http://localhost:9000/api/eval \
 
 API 文档：http://localhost:9000/docs
 
-## 8 类业务工具
+## 11 类业务工具
 
 | 工具名 | 功能 | 关键参数 |
 |--------|------|---------|
@@ -108,6 +117,27 @@ API 文档：http://localhost:9000/docs
 | `risk_query` | 风险等级查询 | 目标(产品/客户) |
 | `custody_bank` | 托管银行信息 | 产品代码 |
 | `fund_manager` | 基金管理人信息 | 管理人名称 |
+| `risk_factor_query` | 风险因子查询 | 标的代码、指定因子 |
+| `financial_report_query` | 财报分析 | 标的代码 |
+| `factor_mining` | 因子挖掘 / 多因子排行榜 | 返回前 N 名 |
+
+### 量化与财报能力（由「回测明算」量化专家设计口径）
+
+- **风险因子引擎** `src/factors/risk_factors.py`：年化收益/波动、Sharpe、Sortino、最大回撤、Calmar、
+  Beta/Alpha(CAPM)、VaR/CVaR(历史模拟)、偏度/峰度；风格因子含动量(20/60/120 日)、低波。
+- **多因子排行榜**：动量 / 价值 / 质量(ROE) / 成长(营收CAGR) / 低波，截面 z-score 标准化后等权合成综合得分。
+- **财报分析** `src/factors/financial_report.py`：三大表 → ROE/ROA/毛利率/净利率/资产负债率/流动比率/速动比率/
+  应收账款周转天数/经营现金流占比，并按阈值做异常预警（如毛利率<20%、资产负债率>70%、流动比率<1）。
+- **因子回测** `src/factors/factor_backtest.py`：动量因子(ROC20/60) 策略回测，严格遵循
+  信号第 i 日收盘生成、第 i+1 日开盘撮合（无前视）、warmup 隔离、A 股 T+1/整手、费用与期末强制平仓，
+  产出 `<prefix>_equity.csv` / `<prefix>_trades.csv` / `<prefix>_summary.json` 三件套，并渲染专家仪表盘
+  `data/backtest/index.html`。
+
+```bash
+# 复现因子计算与回测
+python scripts/compute_demo.py                 # 打印全市场因子/财报数值(JSON)
+python -m factors.factor_backtest --code 688001.SH --out data/backtest
+```
 
 ## 性能优化策略
 
@@ -145,8 +175,18 @@ npm run dev          # http://localhost:5173
 npm run build        # 产物输出到 web/dist/
 ```
 
-推送 `main` 分支后，GitHub Actions 自动构建并部署到 GitHub Pages：
-`https://<username>.github.io/wecom-agent-platform/`
+**已上线**：https://dev-belly.github.io/wecom-agent-platform/
+
+当前采用 **gh-pages 分支**部署（构建产物直接推送到 `gh-pages` 分支，GitHub Pages 从该分支提供服务）。该方式无需 `workflow` 权限即可发布。
+
+如需改为 **GitHub Actions 自动部署**（推送 `main` 即自动构建发布），仓库已附带 `.github/workflows/deploy.yml`。因推送 Actions 工作流需 `workflow` 权限，请先执行：
+
+```bash
+gh auth refresh -s workflow
+git add .github/workflows/deploy.yml
+git commit -m "ci: 添加 Pages 自动部署"
+git push
+```
 
 网页支持两种模式：
 - **Demo 模式**（默认）：内置样例数据，展示完整检索链路与工具调用追踪
@@ -156,10 +196,11 @@ npm run build        # 产物输出到 web/dist/
 
 | 区域 | 内容 |
 |------|------|
-| 顶栏 | 项目标题、Demo/Live 模式切换、后端地址配置 |
-| 侧边栏 | 8 类业务工具列表（高亮当前调用） |
+| 顶栏 | 项目标题、对话/量化分析视图切换、Demo/Live 模式切换、后端地址配置 |
+| 侧边栏 | 11 类业务工具列表（高亮当前调用） |
 | 聊天面板 | 用户/助手消息气泡、建议提问、加载动画 |
 | 工具追踪 | 可折叠卡片：意图识别、调用工具、校验参数、检索链路可视化 |
+| 量化分析 | 多因子排行榜、风险因子卡片、财报三大表可视化、因子回测 KPI |
 | 指标栏 | Recall@10、Precision@3、最近延迟 |
 
 ## 项目结构（完整）

@@ -6,6 +6,7 @@ import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ChatPanel from './components/ChatPanel'
 import MetricsBar from './components/MetricsBar'
+import QuantView from './components/QuantView'
 
 const DEMO_METRICS: Metrics = {
   recallAt10: 0.91,
@@ -16,6 +17,7 @@ const DEMO_METRICS: Metrics = {
 export default function App() {
   const [mode, setMode] = useState<'demo' | 'live'>('demo')
   const [backendUrl, setBackendUrl] = useState('http://localhost:9000')
+  const [view, setView] = useState<'chat' | 'quant'>('chat')
   const [messages, setMessages] = useState<Message[]>(() => [welcomeMessage()])
   const [isLoading, setIsLoading] = useState(false)
   const [metrics, setMetrics] = useState<Metrics>(DEMO_METRICS)
@@ -91,8 +93,14 @@ export default function App() {
           }}
           backendUrl={backendUrl}
           setBackendUrl={setBackendUrl}
+          view={view}
+          setView={setView}
         />
-        <ChatPanel messages={messages} isLoading={isLoading} onSend={handleSend} />
+        {view === 'quant' ? (
+          <QuantView />
+        ) : (
+          <ChatPanel messages={messages} isLoading={isLoading} onSend={handleSend} />
+        )}
         <MetricsBar metrics={metrics} />
       </div>
     </div>

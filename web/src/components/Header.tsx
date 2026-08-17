@@ -5,9 +5,11 @@ interface Props {
   setMode: (m: 'demo' | 'live') => void
   backendUrl: string
   setBackendUrl: (u: string) => void
+  view: 'chat' | 'quant'
+  setView: (v: 'chat' | 'quant') => void
 }
 
-export default function Header({ mode, setMode, backendUrl, setBackendUrl }: Props) {
+export default function Header({ mode, setMode, backendUrl, setBackendUrl, view, setView }: Props) {
   const [editing, setEditing] = useState(false)
 
   return (
@@ -27,6 +29,25 @@ export default function Header({ mode, setMode, backendUrl, setBackendUrl }: Pro
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <div className="flex rounded-lg border border-line overflow-hidden text-xs">
+          <button
+            onClick={() => setView('chat')}
+            className={`px-3 py-1.5 transition ${
+              view === 'chat' ? 'bg-teal/20 text-teal' : 'text-muted hover:text-fg'
+            }`}
+          >
+            对话
+          </button>
+          <button
+            onClick={() => setView('quant')}
+            className={`px-3 py-1.5 transition ${
+              view === 'quant' ? 'bg-teal/20 text-teal' : 'text-muted hover:text-fg'
+            }`}
+          >
+            量化分析
+          </button>
+        </div>
+
         {mode === 'live' &&
           (editing ? (
             <input

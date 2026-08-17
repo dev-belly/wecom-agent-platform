@@ -9,7 +9,7 @@ export default function Sidebar({ activeTool }: Props) {
     <aside className="w-60 shrink-0 hidden md:flex flex-col border-r border-line bg-surface/40">
       <div className="px-4 py-3 border-b border-line">
         <div className="text-xs text-muted">业务工具</div>
-        <div className="text-sm font-medium text-fg">8 类金融查询能力</div>
+        <div className="text-sm font-medium text-fg">11 类金融查询能力</div>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {TOOLS.map((t) => {

@@ -26,6 +26,10 @@ dependencies = [
     "chromadb>=0.5.0",
     "flagembedding>=1.2.0",        # bge-reranker
 
+    # Quantitative / factor analysis
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+
     # vLLM
     "vllm>=0.6.0",
 

@@ -45,6 +45,22 @@ class RiskAssessmentParams(BaseModel):
     assessment_type: str = Field("suitability", description="评估类型: suitability/exposure/concentration")
 
 
+class RiskFactorQueryParams(BaseModel):
+    """风险因子查询参数"""
+    code: Optional[str] = Field(None, description="标的代码，如 688001.SH；不填则返回全市场概览")
+    metric: Optional[str] = Field(None, description="指定因子: sharpe/beta/max_drawdown/var 等")
+
+
+class FinancialReportQueryParams(BaseModel):
+    """财报分析查询参数"""
+    code: Optional[str] = Field(None, description="标的代码，如 300750.SZ")
+
+
+class FactorMiningParams(BaseModel):
+    """因子挖掘/排行榜参数"""
+    top_n: Optional[int] = Field(None, gt=0, description="返回前 N 名，默认全部")
+
+
 # ── 工具基类 ──────────────────────────────────────────
 
 class BaseTool:
@@ -290,6 +306,92 @@ class FundManagerTool(BaseTool):
         }
 
 
+# ── 量化因子类工具（9 / 10 / 11）─────────────────────
+
+class RiskFactorQueryTool(BaseTool):
+    """工具 9: 风险因子查询"""
+
+    name = "risk_factor_query"
+    description = "计算标的的风险因子：年化收益/波动、Sharpe、Sortino、最大回撤、Calmar、Beta、Alpha、VaR/CVaR"
+
+    def execute(self, **kwargs) -> dict:
+        from factors.demo_data import load_market_data, load_stock_prices
+        from factors.risk_factors import FactorEngine
+
+        params = RiskFactorQueryParams(**kwargs)
+        engine = FactorEngine()
+        mclose = load_market_data().set_index("date")["close"]
+        prices = load_stock_prices()
+
+        if params.code:
+            if params.code not in prices:
+                return {"tool": self.name, "error": f"未找到标的 {params.code}"}
+            df = prices[params.code].set_index("date")["close"]
+            risk = engine.compute_risk_metrics(df, mclose)
+            style = engine.compute_style_factors(df)
+            return {
+                "tool": self.name,
+                "params": kwargs,
+                "code": params.code,
+                "risk": risk,
+                "style": style,
+            }
+
+        # 全市场概览
+        overview = []
+        for code, df in prices.items():
+            close = df.set_index("date")["close"]
+            r = engine.compute_risk_metrics(close, mclose)
+            overview.append({"code": code, "sharpe": r["sharpe"], "beta": r["beta"],
+                             "max_drawdown": r["max_drawdown"], "annual_return": r["annual_return"]})
+        overview.sort(key=lambda x: x["sharpe"], reverse=True)
+        return {"tool": self.name, "params": kwargs, "overview": overview}
+
+
+class FinancialReportQueryTool(BaseTool):
+    """工具 10: 财报分析"""
+
+    name = "financial_report_query"
+    description = "解析财报三大表，输出财务比率（ROE/毛利率/资产负债率等）、同比趋势与异常预警"
+
+    def execute(self, **kwargs) -> dict:
+        from factors.demo_data import load_financials
+        from factors.financial_report import FinancialReportAnalyzer
+
+        params = FinancialReportQueryParams(**kwargs)
+        financials = load_financials()
+        analyzer = FinancialReportAnalyzer(financials)
+
+        if params.code:
+            if params.code not in financials:
+                return {"tool": self.name, "error": f"未找到 {params.code} 的财报数据"}
+            return {"tool": self.name, "params": kwargs, "report": analyzer.summarize(params.code)}
+
+        return {"tool": self.name, "params": kwargs, "reports": [analyzer.summarize(c) for c in financials]}
+
+
+class FactorMiningTool(BaseTool):
+    """工具 11: 因子挖掘 / 多因子排行榜"""
+
+    name = "factor_mining"
+    description = "对股票池做多因子暴露计算（动量/价值/质量/成长/低波），截面 z-score 合成综合因子得分排行"
+
+    def execute(self, **kwargs) -> dict:
+        from factors.demo_data import load_market_data, load_stock_prices, load_financials
+        from factors.risk_factors import FactorEngine
+
+        params = FactorMiningParams(**kwargs)
+        engine = FactorEngine()
+        mclose = load_market_data().set_index("date")["close"]
+        prices = load_stock_prices()
+        financials = load_financials()
+
+        rows = engine.cross_sectional_leaderboard(prices, financials, mclose)
+        if params.top_n:
+            rows = rows[: params.top_n]
+        return {"tool": self.name, "params": kwargs, "count": len(rows), "leaderboard": rows}
+
+
 # ── 工具注册表 ───────────────────────────────────────
 
 TOOL_REGISTRY: dict[str, type[BaseTool]] = {
@@ -301,6 +403,9 @@ TOOL_REGISTRY: dict[str, type[BaseTool]] = {
     "risk_query": RiskQueryTool,
     "custody_bank": CustodyBankTool,
     "fund_manager": FundManagerTool,
+    "risk_factor_query": RiskFactorQueryTool,
+    "financial_report_query": FinancialReportQueryTool,
+    "factor_mining": FactorMiningTool,
 }
 
 

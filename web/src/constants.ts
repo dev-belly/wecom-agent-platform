@@ -9,6 +9,9 @@ export const TOOLS: ToolMeta[] = [
   { name: 'risk_query', label: '风险等级', desc: '产品或客户风险评估信息' },
   { name: 'custody_bank', label: '托管银行', desc: '产品托管银行与账户信息' },
   { name: 'fund_manager', label: '基金管理人', desc: '基金管理人/产品管理人信息' },
+  { name: 'risk_factor_query', label: '风险因子', desc: '波动率/Beta/Sharpe/Sortino/最大回撤/VaR 等风险因子' },
+  { name: 'financial_report_query', label: '财报分析', desc: '三大表比率、同比趋势、异常预警' },
+  { name: 'factor_mining', label: '因子挖掘', desc: '动量/价值/质量/成长/低波多因子排行榜' },
 ]
 
 export function toolLabel(name: string): string {
