@@ -13,26 +13,42 @@ interface ChatApiResponse {
 export async function sendToBackend(
   baseUrl: string,
   query: string,
+  apiKey: string,
 ): Promise<Message> {
   const url = baseUrl.replace(/\/+$/, '') + '/api/chat'
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const normalizedApiKey = apiKey.trim()
+  if (normalizedApiKey) {
+    headers.Authorization = `Bearer ${normalizedApiKey}`
+  }
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ message: query }),
   })
 
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
+    const contentType = res.headers.get('content-type') ?? ''
+    let detail = ''
+    if (contentType.includes('application/json')) {
+      const body = (await res.json().catch(() => null)) as { detail?: unknown } | null
+      if (typeof body?.detail === 'string') {
+        detail = body.detail.replace(/\s+/g, ' ').trim().slice(0, 160)
+      }
+    }
     return {
       id: crypto.randomUUID(),
       role: 'assistant',
-      content: `后端请求失败（${res.status}）：${text.slice(0, 200)}`,
+      content: `后端请求失败（HTTP ${res.status}）${detail ? `：${detail}` : ''}`,
       error: true,
       trace: { intent: '', tool: '', params: {}, retrieved: [], latencyMs: 0 },
     }
   }
 
-  const data: ChatApiResponse = await res.json()
+  const data = (await res.json().catch(() => null)) as ChatApiResponse | null
+  if (!data || typeof data.reply !== 'string') {
+    throw new Error('后端返回格式无效')
+  }
   const trace: TraceInfo = {
     intent: data.intent || data.tool_used || '',
     tool: data.tool_used || data.intent || '',

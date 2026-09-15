@@ -4,24 +4,19 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, TypedDict, Annotated
-from operator import add
+from typing import Any, TypedDict
 
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool as lc_tool
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 from loguru import logger
 
-from config.settings import get_settings
-from retrieval.hybrid_retriever import HybridRetriever
-from tools.business_tools import (
+from src.config.settings import get_settings
+from src.retrieval.hybrid_retriever import HybridRetriever
+from src.tools.business_tools import (
     TOOL_REGISTRY,
-    get_all_tools,
-    get_tool,
     BaseTool,
+    get_tool,
 )
-
 
 # ── Agent 状态定义 ────────────────────────────────────
 
@@ -45,15 +40,15 @@ INTENT_SYSTEM_PROMPT = """你是一个金融业务意图分类器。根据用户
 {tool_descriptions}
 
 请严格返回 JSON 格式：
-{
+{{
   "intent": "工具名称",
   "confidence": 0.0-1.0,
-  "params": {
+  "params": {{
     "参数名": "参数值或null",
     ...
-  },
+  }},
   "clarification": "如果信息不足需要追问的问题，否则为null"
-}
+}}
 
 规则：
 1. 如果用户问题与任何工具都不匹配，intent 设为 "unknown"
@@ -62,7 +57,14 @@ INTENT_SYSTEM_PROMPT = """你是一个金融业务意图分类器。根据用户
 4. 参数值为 null 表示用户未提供"""
 
 
-def identify_intent(state: AgentState, llm_client) -> AgentState:
+def _response_content(response: Any) -> str:
+    """Read text from either our dict response or an OpenAI-style object."""
+    if isinstance(response, dict):
+        return str(response["choices"][0]["message"]["content"])
+    return str(response.choices[0].message.content)
+
+
+async def identify_intent(state: AgentState, llm_client) -> AgentState:
     """节点 1: 意图识别 + 参数提取"""
     start = time.time()
     settings = get_settings()
@@ -74,7 +76,7 @@ def identify_intent(state: AgentState, llm_client) -> AgentState:
     user_msg = state["messages"][-1]["content"] if state["messages"] else ""
 
     try:
-        response = llm_client.chat.completions.create(
+        response = await llm_client.chat_completions_create(
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": system_msg},
@@ -84,10 +86,14 @@ def identify_intent(state: AgentState, llm_client) -> AgentState:
             max_tokens=512,
             response_format={"type": "json_object"},
         )
-        result = json.loads(response.choices[0].message.content)
+        result = json.loads(_response_content(response))
+        if not isinstance(result, dict):
+            raise ValueError("意图响应必须是 JSON 对象")
 
-        state["intent"] = result.get("intent", "unknown")
-        state["tool_params"] = result.get("params", {})
+        intent = result.get("intent", "unknown")
+        state["intent"] = intent if intent in TOOL_REGISTRY else "unknown"
+        params = result.get("params", {})
+        state["tool_params"] = params if isinstance(params, dict) else {}
         state["timestamps"]["intent"] = time.time() - start
 
         # 低置信度 → 标记需追问
@@ -120,13 +126,9 @@ def validate_params(state: AgentState) -> AgentState:
             state["error"] = f"未知意图: {intent}"
             return state
 
-        # 用 Pydantic 校验参数
-        schema = tool_cls.parameters_schema
         params = state.get("tool_params", {})
-
-        # 过滤掉 None 值后校验
-        clean_params = {k: v for k, v in params.items() if v is not None}
-        # 这里仅做基本类型检查，实际校验在工具 execute 内部完成
+        if not isinstance(params, dict):
+            raise TypeError("工具参数必须是 JSON 对象")
 
         state["timestamps"]["validate"] = time.time() - start
         logger.info(f"参数校验通过: {intent}")
@@ -178,7 +180,7 @@ RESPONSE_SYSTEM_PROMPT = """你是一个专业的金融运营助手。基于工�
 5. 不要暴露内部技术细节（如工具名、trace_id 等）"""
 
 
-def format_response(state: AgentState, llm_client) -> AgentState:
+async def format_response(state: AgentState, llm_client) -> AgentState:
     """节点 4: LLM 格式化最终回复"""
     start = time.time()
 
@@ -200,7 +202,7 @@ def format_response(state: AgentState, llm_client) -> AgentState:
 请生成回复："""
 
     try:
-        response = llm_client.chat.completions.create(
+        response = await llm_client.chat_completions_create(
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": RESPONSE_SYSTEM_PROMPT},
@@ -210,7 +212,7 @@ def format_response(state: AgentState, llm_client) -> AgentState:
             max_tokens=1024,
         )
 
-        state["final_response"] = response.choices[0].message.content
+        state["final_response"] = _response_content(response)
         state["timestamps"]["format"] = time.time() - start
 
     except Exception as e:
@@ -237,7 +239,6 @@ def _format_fallback(tool_result: dict) -> str:
     lines = [f"找到 {count} 条相关信息："]
 
     for i, r in enumerate(results[:5], 1):
-        parsed = r.get("parsed", {})
         text = r.get("text", "")[:80]
         score = r.get("rerank_score", r.get("score", 0))
         lines.append(f"{i}. (相关度: {score:.2f}) {text}")
@@ -266,15 +267,20 @@ class FinancialAgentGraph:
         self.retriever = retriever
         self.llm_client = llm_client
         self.graph = self._build_graph()
-        self.checkpointer = MemorySaver()
 
     def _build_graph(self) -> StateGraph:
         g = StateGraph(AgentState)
 
-        g.add_node("identify_intent", lambda s: identify_intent(s, self.llm_client))
+        async def identify_node(state: AgentState) -> AgentState:
+            return await identify_intent(state, self.llm_client)
+
+        async def format_node(state: AgentState) -> AgentState:
+            return await format_response(state, self.llm_client)
+
+        g.add_node("identify_intent", identify_node)
         g.add_node("validate_params", validate_params)
         g.add_node("execute_tool", lambda s: execute_tool(s, self.retriever))
-        g.add_node("format_response", lambda s: format_response(s, self.llm_client))
+        g.add_node("format_response", format_node)
 
         # 条件边：是否需要跳过工具执行
         def should_execute(s: AgentState) -> str:
@@ -288,7 +294,7 @@ class FinancialAgentGraph:
         g.add_edge("format_response", END)
 
         g.set_entry_point("identify_intent")
-        return g.compile(checkpointer=self.checkpointer)
+        return g.compile()
 
     async def run(self, user_message: str, chat_history: list[dict] | None = None, trace_id: str = "") -> dict:
         """
@@ -344,12 +350,18 @@ def create_langchain_tools(retriever: HybridRetriever) -> list:
     """将业务工具包装为 LangChain tool 格式（可选，用于 ReAct 等 agent 模式）"""
     tools = []
     for name, cls in TOOL_REGISTRY.items():
-        instance = cls(retriever)
+        def create_wrapper(tool_name: str, tool_class: type[BaseTool]):
+            instance = tool_class(retriever)
 
-        @lc_tool(name=name, description=cls.description)
-        def _tool_wrapper(**kwargs):
-            return instance.execute(**kwargs)
+            @lc_tool(
+                tool_name,
+                description=tool_class.description,
+                args_schema=tool_class.parameters_schema or {"type": "object", "additionalProperties": True},
+            )
+            def tool_wrapper(**kwargs):
+                return instance.execute(**kwargs)
 
-        _tool_wrapper.name = name
-        tools.append(_tool_wrapper)
+            return tool_wrapper
+
+        tools.append(create_wrapper(name, cls))
     return tools

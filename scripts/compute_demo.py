@@ -3,12 +3,12 @@ import json
 import sys
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-sys.path.insert(0, str(SRC))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from factors.demo_data import load_market_data, load_stock_prices, load_financials  # noqa: E402
-from factors.risk_factors import FactorEngine  # noqa: E402
-from factors.financial_report import FinancialReportAnalyzer  # noqa: E402
+from src.factors.demo_data import load_financials, load_market_data, load_stock_prices
+from src.factors.financial_report import FinancialReportAnalyzer
+from src.factors.risk_factors import FactorEngine
 
 engine = FactorEngine()
 market = load_market_data()

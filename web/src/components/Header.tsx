@@ -5,11 +5,22 @@ interface Props {
   setMode: (m: 'demo' | 'live') => void
   backendUrl: string
   setBackendUrl: (u: string) => void
+  apiKey: string
+  setApiKey: (key: string) => void
   view: 'chat' | 'quant'
   setView: (v: 'chat' | 'quant') => void
 }
 
-export default function Header({ mode, setMode, backendUrl, setBackendUrl, view, setView }: Props) {
+export default function Header({
+  mode,
+  setMode,
+  backendUrl,
+  setBackendUrl,
+  apiKey,
+  setApiKey,
+  view,
+  setView,
+}: Props) {
   const [editing, setEditing] = useState(false)
 
   return (
@@ -48,26 +59,40 @@ export default function Header({ mode, setMode, backendUrl, setBackendUrl, view,
           </button>
         </div>
 
-        {mode === 'live' &&
-          (editing ? (
+        {mode === 'live' && (
+          <div className="flex items-center gap-2">
+            {editing ? (
+              <input
+                autoFocus
+                value={backendUrl}
+                onChange={(e) => setBackendUrl(e.target.value)}
+                onBlur={() => setEditing(false)}
+                onKeyDown={(e) => e.key === 'Enter' && setEditing(false)}
+                placeholder="http://localhost:9000"
+                aria-label="后端地址"
+                className="w-48 px-2 py-1 rounded-md bg-ink border border-line text-xs font-mono text-fg outline-none focus:border-blue"
+              />
+            ) : (
+              <button
+                onClick={() => setEditing(true)}
+                className="px-2 py-1 rounded-md bg-surface2 border border-line text-[11px] text-muted hover:text-fg"
+                title="点击编辑后端地址"
+              >
+                {backendUrl || '未配置地址'}
+              </button>
+            )}
             <input
-              autoFocus
-              value={backendUrl}
-              onChange={(e) => setBackendUrl(e.target.value)}
-              onBlur={() => setEditing(false)}
-              onKeyDown={(e) => e.key === 'Enter' && setEditing(false)}
-              placeholder="http://localhost:9000"
-              className="w-48 px-2 py-1 rounded-md bg-ink border border-line text-xs font-mono text-fg outline-none focus:border-blue"
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder="API Key（仅本次会话）"
+              aria-label="API Key"
+              autoComplete="off"
+              spellCheck={false}
+              className="w-44 px-2 py-1 rounded-md bg-ink border border-line text-xs font-mono text-fg outline-none focus:border-blue"
             />
-          ) : (
-            <button
-              onClick={() => setEditing(true)}
-              className="px-2 py-1 rounded-md bg-surface2 border border-line text-[11px] text-muted hover:text-fg"
-              title="点击编辑后端地址"
-            >
-              {backendUrl || '未配置地址'}
-            </button>
-          ))}
+          </div>
+        )}
 
         <div className="flex rounded-lg border border-line overflow-hidden text-xs">
           <button

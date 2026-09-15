@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
-from loguru import logger
+from pydantic import BaseModel, Field
 
-from retrieval.hybrid_retriever import HybridRetriever
-
+from src.retrieval.hybrid_retriever import HybridRetriever
 
 # ── 工具参数模型（自动校验）─
 
@@ -79,6 +75,27 @@ class BaseTool:
     def _search(self, query: str, top_k: int = 5) -> list[dict]:
         """统一调用混合检索"""
         return self.retriever.retrieve(query, top_k=top_k)
+
+    @staticmethod
+    def _parse_result_row(text: str) -> dict:
+        """将检索结果文本行解析为字典"""
+        row = {}
+        for segment in text.split(" | "):
+            if ":" in segment:
+                key, _, val = segment.partition(":")
+                row[key.strip()] = val.strip()
+        return row
+
+    @staticmethod
+    def _parse_date(date_str: str) -> Optional[date]:
+        """解析多种日期格式"""
+        formats = ["%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日", "%Y-%m-%d %H:%M:%S"]
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str.strip(), fmt).date()
+            except (ValueError, TypeError):
+                continue
+        return None
 
 
 # ── 8 类业务工具实现 ──────────────────────────────────
@@ -315,8 +332,8 @@ class RiskFactorQueryTool(BaseTool):
     description = "计算标的的风险因子：年化收益/波动、Sharpe、Sortino、最大回撤、Calmar、Beta、Alpha、VaR/CVaR"
 
     def execute(self, **kwargs) -> dict:
-        from factors.demo_data import load_market_data, load_stock_prices
-        from factors.risk_factors import FactorEngine
+        from src.factors.demo_data import load_market_data, load_stock_prices
+        from src.factors.risk_factors import FactorEngine
 
         params = RiskFactorQueryParams(**kwargs)
         engine = FactorEngine()
@@ -355,8 +372,8 @@ class FinancialReportQueryTool(BaseTool):
     description = "解析财报三大表，输出财务比率（ROE/毛利率/资产负债率等）、同比趋势与异常预警"
 
     def execute(self, **kwargs) -> dict:
-        from factors.demo_data import load_financials
-        from factors.financial_report import FinancialReportAnalyzer
+        from src.factors.demo_data import load_financials
+        from src.factors.financial_report import FinancialReportAnalyzer
 
         params = FinancialReportQueryParams(**kwargs)
         financials = load_financials()
@@ -377,8 +394,8 @@ class FactorMiningTool(BaseTool):
     description = "对股票池做多因子暴露计算（动量/价值/质量/成长/低波），截面 z-score 合成综合因子得分排行"
 
     def execute(self, **kwargs) -> dict:
-        from factors.demo_data import load_market_data, load_stock_prices, load_financials
-        from factors.risk_factors import FactorEngine
+        from src.factors.demo_data import load_financials, load_market_data, load_stock_prices
+        from src.factors.risk_factors import FactorEngine
 
         params = FactorMiningParams(**kwargs)
         engine = FactorEngine()
@@ -419,33 +436,3 @@ def get_tool(name: str, retriever: HybridRetriever) -> BaseTool:
     if name not in TOOL_REGISTRY:
         raise ValueError(f"未知工具: {name}，可用工具: {list(TOOL_REGISTRY.keys())}")
     return TOOL_REGISTRY[name](retriever)
-
-
-# ── 通用辅助方法 ──────────────────────────────────────
-
-@staticmethod
-def _parse_result_row(text: str) -> dict:
-    """将检索结果文本行解析为字典"""
-    row = {}
-    for segment in text.split(" | "):
-        if ":" in segment:
-            key, _, val = segment.partition(":")
-            row[key.strip()] = val.strip()
-    return row
-
-
-@staticmethod
-def _parse_date(date_str: str) -> Optional[date]:
-    """解析多种日期格式"""
-    formats = ["%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日", "%Y-%m-%d %H:%M:%S"]
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_str.strip(), fmt).date()
-        except (ValueError, TypeError):
-            continue
-    return None
-
-
-# 将静态方法挂到基类上
-BaseTool._parse_result_row = _parse_result_row.__func__
-BaseTool._parse_date = _parse_date.__func__

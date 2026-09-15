@@ -37,9 +37,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .dashboard_locales import DEFAULT_LANGUAGE, LOCALES, SUPPORTED_LANGUAGES
+    from .dashboard_locales import LOCALES, SUPPORTED_LANGUAGES
 except ImportError:  # pragma: no cover - direct script execution
-    from dashboard_locales import DEFAULT_LANGUAGE, LOCALES, SUPPORTED_LANGUAGES
+    from dashboard_locales import LOCALES, SUPPORTED_LANGUAGES
 
 
 def _resolve_locale(language: str | None) -> dict[str, Any]:

@@ -28,8 +28,8 @@ export interface ToolMeta {
 }
 
 export interface Metrics {
-  recallAt10: number
-  precisionAt3: number
+  recallAt10: number | null
+  precisionAt3: number | null
   lastLatencyMs: number
 }
 

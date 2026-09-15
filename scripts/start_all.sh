@@ -17,7 +17,6 @@ sleep 5
 
 echo ""
 echo "=== Step 2/2: 启动 API Service ==="
-export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
 python -m uvicorn src.main:app --host 0.0.0.0 --port 9000 --reload 2>&1 | tee logs/api_9000.log &
 API_PID=$!
 echo $API_PID > /tmp/api_service.pid

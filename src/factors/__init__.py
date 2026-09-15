@@ -7,9 +7,9 @@
 - factor_backtest:  动量因子策略回测（A 股多空合规，产出标准三件套 + 仪表盘）
 """
 
-from .demo_data import load_market_data, load_stock_prices, load_financials
-from .risk_factors import FactorEngine
+from .demo_data import load_financials, load_market_data, load_stock_prices
 from .financial_report import FinancialReportAnalyzer
+from .risk_factors import FactorEngine
 
 __all__ = [
     "load_market_data",

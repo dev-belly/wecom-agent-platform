@@ -46,7 +46,6 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-
 # Allow a small set of aliases for display fields so a missing standard key does
 # not silently fall back to the raw ticker. Keep core execution fields strict to
 # avoid hiding trading-logic bugs.

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import pdfplumber
 import fitz  # PyMuPDF
+import pdfplumber
 from loguru import logger
-
 
 # ── 字段映射标准（统一 80 份 PDF 的异构字段名）─
 FIELD_STANDARDIZATION: dict[str, str] = {
@@ -54,9 +53,25 @@ class ParsedTable:
     rows: list[dict[str, object]]
     source_file: str = ""
     confidence: float = 1.0
+    page_end: Optional[int] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ParsedTable":
+        """Restore a table saved by :meth:`to_dict`, including older files."""
+        page_start, _, legacy_page_end = str(data.get("page_num", 0)).partition("-")
+        page_end = data.get("page_end") or legacy_page_end
+        return cls(
+            page_num=int(page_start),
+            table_index=int(data.get("table_index", 0)),
+            headers=[str(value) for value in data.get("headers", [])],
+            rows=list(data.get("rows", [])),
+            source_file=str(data.get("source_file", "")),
+            confidence=float(data.get("confidence", 1.0)),
+            page_end=int(page_end) if page_end else None,
+        )
 
 
 @dataclass
@@ -73,9 +88,23 @@ class ParsedDocument:
             "source_file": self.source_file,
             "total_pages": self.total_pages,
             "tables": [t.to_dict() for t in self.tables],
+            # Persist the actual text. Keeping only its length made the service
+            # rebuild an empty BM25 index after a restart.
+            "raw_text": self.raw_text,
             "raw_text_length": len(self.raw_text),
             "metadata": self.metadata,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ParsedDocument":
+        """Restore a parsed document while remaining compatible with old JSON."""
+        return cls(
+            source_file=str(data.get("source_file", "")),
+            total_pages=int(data.get("total_pages", 0)),
+            tables=[ParsedTable.from_dict(item) for item in data.get("tables", [])],
+            raw_text=str(data.get("raw_text", "")),
+            metadata=dict(data.get("metadata", {})),
+        )
 
 
 class FinancialPDFParser:
@@ -157,8 +186,10 @@ class FinancialPDFParser:
         result.tables = merged_tables
 
         # ── 第三遍：提取全文（用于 BM25）─
-        result.raw_text = "\n".join(page.get_text() for page in doc)
-        doc.close()
+        try:
+            result.raw_text = "\n".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
 
         logger.info(f"{pdf_path.name}: {total_pages} 页, {len(merged_tables)} 个表格")
         return result
@@ -214,14 +245,15 @@ class FinancialPDFParser:
         current = tables[0]
 
         for nxt in tables[1:]:
+            current_end = current.page_end or current.page_num
             is_continuation = (
-                nxt.page_num == current.page_num + 1
+                nxt.page_num == current_end + 1
                 and self._header_similarity(current.headers, nxt.headers) > 0.8
             )
             if is_continuation:
                 # 续表行追加到当前表
                 current.rows.extend(nxt.rows)
-                current.page_num = f"{current.page_num}-{nxt.page_num}"  # 标记跨页范围
+                current.page_end = nxt.page_end or nxt.page_num
             else:
                 merged.append(current)
                 current = nxt
@@ -240,7 +272,7 @@ class FinancialPDFParser:
 
 # ── CLI 入口 ────────────────────────────────────────────
 if __name__ == "__main__":
-    from config.settings import get_settings
+    from src.config.settings import get_settings
 
     settings = get_settings()
     parser = FinancialPDFParser(settings.pdf_input_dir, settings.parsed_output_dir)

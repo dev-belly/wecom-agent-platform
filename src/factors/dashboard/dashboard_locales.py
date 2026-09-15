@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 LOCALES: dict[str, dict[str, Any]] = {
     "zh": {
         "tab_overview": "总览",

@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
-from functools import lru_cache
-from typing import Optional, Any
+from typing import Any, Optional
 
 import httpx
 from cachetools import TTLCache
 from loguru import logger
 
-from config.settings import get_settings
-
+from src.config.settings import get_settings
 
 # ── 语义缓存（相同/相似查询复用结果）─
 
@@ -48,7 +47,7 @@ class SemanticCache:
             "model": model,
             "messages": [(m.get("role", ""), m.get("content", "")) for m in messages],
             **extra,
-        }, ensure_ascii=False, sort_keys=True)
+        }, ensure_ascii=False, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def get(self, model: str, messages: list[dict], **extra) -> Optional[str]:
@@ -100,7 +99,6 @@ class AsyncLLMClient:
         self._client: Optional[httpx.AsyncClient] = None
 
         # 并发信号量
-        import asyncio
         self._semaphore = asyncio.Semaphore(self.settings.llm_max_concurrent)
 
         # 语义缓存
@@ -150,7 +148,13 @@ class AsyncLLMClient:
         t0 = time.perf_counter()
 
         # 1. 查缓存
-        cached = self.cache.get(model, messages, temperature=temperature, max_tokens=max_tokens)
+        cache_options = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "response_format": response_format,
+            "kwargs": kwargs,
+        }
+        cached = self.cache.get(model, messages, **cache_options)
         if cached is not None:
             self._cache_count += 1
             return {"choices": [{"message": {"content": cached}}], "cached": True}
@@ -178,8 +182,14 @@ class AsyncLLMClient:
                     data = resp.json()
 
                     # 写缓存
-                    content = data["choices"][0]["message"]["content"]
-                    self.cache.set(model, messages, content, temperature=temperature, max_tokens=max_tokens)
+                    choices = data.get("choices") if isinstance(data, dict) else None
+                    if not choices or not isinstance(choices[0], dict):
+                        raise RuntimeError("vLLM 响应缺少 choices")
+                    message = choices[0].get("message")
+                    content = message.get("content") if isinstance(message, dict) else None
+                    if not isinstance(content, str):
+                        raise RuntimeError("vLLM 响应缺少文本内容")
+                    self.cache.set(model, messages, content, **cache_options)
 
                     latency = time.perf_counter() - t0
                     self._request_count += 1
@@ -238,16 +248,21 @@ class AsyncLLMClient:
         async def create(self, **kwargs) -> Any:
             return await self._parent.chat_completions_create(**kwargs)
 
+    class Chat:
+        """OpenAI-compatible ``client.chat.completions`` namespace."""
+
+        def __init__(self, parent: "AsyncLLMClient"):
+            self.completions = parent.ChatCompletions(parent)
+
     @property
     def chat(self):
-        return self.ChatCompletions(self)
+        return self.Chat(self)
 
 
 # ── 同步包装（用于非 async 场景）─
 
 class SyncLLMClient:
     """同步版 LLM 客户端（内部用线程跑 async）"""
-    import asyncio
 
     def __init__(self):
         self._async_client = AsyncLLMClient()
@@ -264,29 +279,38 @@ class SyncLLMClient:
             self._async_client.chat_completions_create(**kwargs)
         )
 
-    @property
-    def chat):
-        return self._SyncChat(self)
-
-    class _SyncChat:
+    class _SyncCompletions:
         def __init__(self, parent: "SyncLLMClient"):
             self._parent = parent
 
         def create(self, **kwargs):
             return self._parent.chat_completions_create(**kwargs)
 
+    class _SyncChat:
+        def __init__(self, parent: "SyncLLMClient"):
+            self.completions = parent._SyncCompletions(parent)
+
+    @property
+    def chat(self):
+        return self._SyncChat(self)
+
 
 # ── 单例管理 ──────────────────────────────────────────
 
-_llm_client_instance: Optional[AsyncLLMClient] = None
+_async_llm_client_instance: Optional[AsyncLLMClient] = None
+_sync_llm_client_instance: Optional[SyncLLMClient] = None
 
 
 def get_llm_client(async_mode: bool = True):
     """获取 LLM 客户端单例"""
-    global _llm_client_instance
-    if _llm_client_instance is None:
-        _llm_client_instance = AsyncLLMClient() if async_mode else SyncLLMClient()
-    return _llm_client_instance
+    global _async_llm_client_instance, _sync_llm_client_instance
+    if async_mode:
+        if _async_llm_client_instance is None:
+            _async_llm_client_instance = AsyncLLMClient()
+        return _async_llm_client_instance
+    if _sync_llm_client_instance is None:
+        _sync_llm_client_instance = SyncLLMClient()
+    return _sync_llm_client_instance
 
 
 # ── 启动时预热 ────────────────────────────────────────
@@ -304,6 +328,3 @@ async def warmup():
         logger.info(f"✅ vLLM 预热完成，首请求耗时 {elapsed:.2f}s")
     except Exception as e:
         logger.warning(f"⚠️ vLLM 预热失败（服务可能尚未就绪）: {e}")
-
-
-import asyncio

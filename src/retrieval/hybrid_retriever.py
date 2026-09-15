@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
-from chromadb import Client, Settings
-from chromadb.api.models.Collection
 from loguru import logger
-from FlagEmbedding import FlagReranker
+from rank_bm25 import BM25Okapi
 
-from config.settings import get_settings
-from parsers.pdf_parser import ParsedDocument, FinancialPDFParser
+if TYPE_CHECKING:
+    from chromadb.api.models.Collection import Collection
+    from FlagEmbedding import FlagReranker
+    from sentence_transformers import SentenceTransformer
+
+from src.config.settings import get_settings
+from src.parsers.pdf_parser import ParsedDocument
 
 
 class HybridRetriever:
@@ -38,14 +39,14 @@ class HybridRetriever:
         self.bm25_metadatas: list[dict] = []  # 对应元数据
 
         # ── Embedding ──
-        self.encoder: Optional[SentenceTransformer] = None
+        self.encoder: Optional["SentenceTransformer"] = None
 
         # ── Vector DB ──
-        self.chroma_client: Optional[Client] = None
-        self.collection: Optional[Collection] = None
+        self.chroma_client: Optional[object] = None
+        self.collection: Optional["Collection"] = None
 
         # ── Reranker ──
-        self.reranker: Optional[FlagReranker] = None
+        self.reranker: Optional["FlagReranker"] = None
 
         self._initialized = False
 
@@ -83,6 +84,9 @@ class HybridRetriever:
 
         logger.info(f"共 {len(all_chunks)} 个文本块，开始建索引...")
 
+        if not all_chunks:
+            raise ValueError("解析结果中没有可用于检索的文本内容")
+
         # 1. BM25 索引
         self._build_bm25(all_chunks, all_metadatas)
 
@@ -97,6 +101,12 @@ class HybridRetriever:
 
     def _build_bm25(self, chunks: list[str], metadatas: list[dict]) -> None:
         """构建 BM25 索引"""
+        if not chunks:
+            self.bm25 = None
+            self.bm25_docs = []
+            self.bm25_metadatas = []
+            logger.warning("没有可用于 BM25 索引的文本块")
+            return
         tokenized = [self._tokenize_zh(c) for c in chunks]
         self.bm25 = BM25Okapi(tokenized)
         self.bm25_docs = chunks
@@ -105,6 +115,18 @@ class HybridRetriever:
 
     def _build_vector_index(self, chunks: list[str], metadatas: list[dict]) -> None:
         """构建向量索引"""
+        if not chunks:
+            self.encoder = None
+            self.collection = None
+            return
+        try:
+            from chromadb import Client, Settings
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            self.encoder = None
+            self.collection = None
+            logger.warning('未安装可选向量检索依赖，继续使用 BM25；可执行 pip install -e ".[retrieval]" 启用')
+            return
         self.encoder = SentenceTransformer(self.settings.embedding_model, device=self.settings.embedding_device)
 
         persist_dir = Path(self.settings.chroma_persist_dir)
@@ -129,6 +151,12 @@ class HybridRetriever:
 
     def _load_reranker(self) -> None:
         """加载 Reranker 模型"""
+        try:
+            from FlagEmbedding import FlagReranker
+        except ImportError:
+            self.reranker = None
+            logger.warning('未安装可选重排依赖，继续使用融合排序；可执行 pip install -e ".[retrieval]" 启用')
+            return
         self.reranker = FlagReranker(self.settings.reranker_model, use_fp16=True)
         logger.info("Reranker 模型加载完成")
 
@@ -166,9 +194,16 @@ class HybridRetriever:
 
     def _bm25_search(self, query: str, top_k: int) -> list[dict]:
         """BM25 关键词搜索"""
+        if self.bm25 is None:
+            return []
         tokenized_query = self._tokenize_zh(query)
         scores = self.bm25.get_scores(tokenized_query)
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        # Okapi scores can be zero/negative when terms occur in most documents,
+        # including a one-document index. Token overlap determines eligibility.
+        top_indices = [
+            i for i in np.argsort(scores)[::-1]
+            if any(token in self.bm25.doc_freqs[i] for token in tokenized_query)
+        ][:top_k]
 
         return [
             {
@@ -177,11 +212,13 @@ class HybridRetriever:
                 "metadata": self.bm25_metadatas[i],
                 "source": "bm25",
             }
-            for i in top_indices if scores[i] > 0
+            for i in top_indices
         ]
 
     def _vector_search(self, query: str, top_k: int) -> list[dict]:
         """Dense Vector 语义搜索"""
+        if self.encoder is None or self.collection is None:
+            return []
         query_embedding = self.encoder.encode([query], normalize_embeddings=True).tolist()[0]
         results = self.collection.query(
             query_embeddings=[query_embedding],
@@ -204,8 +241,16 @@ class HybridRetriever:
         if not candidates:
             return []
 
+        if self.reranker is None:
+            return [
+                {**candidate, "rerank_score": float(candidate.get("rrf_score", 0.0))}
+                for candidate in candidates[:top_k]
+            ]
+
         pairs = [[query, c["text"]] for c in candidates]
         scores = self.reranker.compute_score(pairs)
+        if np.isscalar(scores):
+            scores = [scores]
 
         scored = [(c, s) for c, s in zip(candidates, scores)]
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -237,20 +282,26 @@ class HybridRetriever:
 
         RRF(score) = Σ 1/(k + rank_i)
         """
-        scores: dict[int, float] = {}
-        item_map: dict[int, dict] = {}
+        scores: dict[str, float] = {}
+        item_map: dict[str, dict] = {}
 
         for results in [results_a, results_b]:
             for rank, item in enumerate(results):
-                # 用 text hash 作为唯一标识（简化处理）
-                item_id = id(item)
+                # BM25 与向量召回会创建不同的 dict 对象；对象 id 无法去重。
+                # 文本和元数据共同构成稳定键，避免相同正文来自不同文档时误合并。
+                item_id = json.dumps(
+                    [item.get("text", ""), item.get("metadata", {})],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
                 if item_id not in scores:
                     scores[item_id] = 0.0
                     item_map[item_id] = item
                 scores[item_id] += 1.0 / (k + rank + 1)
 
         ranked_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-        return [item_map[i] for i in ranked_ids]
+        return [{**item_map[i], "rrf_score": scores[i]} for i in ranked_ids]
 
 
 # ── 评估工具 ────────────────────────────────────────────
@@ -262,9 +313,9 @@ class RetrievalEvaluator:
 
     def evaluate(
         self,
-        eval_data: list[dict],  # [{"query": "...", "relevant_doc_ids": ["..."]}]
-        recall_k: list[int] = [10],
-        precision_k: list[int] = [3],
+        eval_data: list[dict],  # [{"query": "...", "relevant_texts": ["..."]}]
+        recall_k: Optional[list[int]] = None,
+        precision_k: Optional[list[int]] = None,
     ) -> dict:
         """
         在测试集上评估检索质量
@@ -272,19 +323,33 @@ class RetrievalEvaluator:
         Returns:
             {"recall@10": 0.91, "precision@3": 0.87, ...}
         """
+        recall_k = recall_k or [10]
+        precision_k = precision_k or [3]
+        if not eval_data:
+            raise ValueError("评估数据不能为空")
+        if any(k <= 0 for k in [*recall_k, *precision_k]):
+            raise ValueError("评估截断值必须为正整数")
+
         metrics = {f"recall@{k}": [] for k in recall_k}
         metrics.update({f"precision@{k}": [] for k in precision_k})
 
         for sample in eval_data:
             query = sample["query"]
-            relevant = set(sample.get("relevant_doc_ids", sample.get("relevant_texts", [])))
+            labels = sample.get("relevant_texts")
+            if not isinstance(query, str) or not query.strip():
+                raise ValueError("评估问题必须是非空文本")
+            if not isinstance(labels, list) or not labels or any(
+                not isinstance(label, str) or not label.strip() for label in labels
+            ):
+                raise ValueError("评估样本必须包含非空 relevant_texts 字符串数组")
+            relevant = set(labels)
 
             results = self.retriever.retrieve(query, top_k=max(max(recall_k), max(precision_k)))
             retrieved_texts = [r["text"] for r in results]
 
             for k in recall_k:
-                hit = any(any(rel in rt for rel in relevant) for rt in retrieved_texts[:k])
-                metrics[f"recall@{k}"].append(1.0 if hit else 0.0)
+                found = sum(any(rel in rt for rt in retrieved_texts[:k]) for rel in relevant)
+                metrics[f"recall@{k}"].append(found / len(relevant))
 
             for k in precision_k:
                 hits = sum(1 for rt in retrieved_texts[:k] if any(rel in rt for rel in relevant))

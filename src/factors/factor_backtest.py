@@ -16,17 +16,16 @@ import argparse
 import sys
 from pathlib import Path
 
-# 允许从仓库根目录以脚本方式运行（factors 包位于 src/ 下）
+# 允许从仓库根目录以脚本方式运行。
 ROOT = Path(__file__).resolve().parents[2]
-SRC = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT))
 
-from factors.demo_data import load_market_data, load_stock_prices  # noqa: E402
-from factors.dashboard.render_dashboard import (  # noqa: E402
+from src.factors.dashboard.export_results import export_results
+from src.factors.dashboard.render_dashboard import (
     build_dashboard_data,
     render_dashboard,
 )
-from factors.dashboard.export_results import export_results  # noqa: E402
+from src.factors.demo_data import load_stock_prices
 
 WARMUP = 120  # 指标预热天数
 FAST = 20

@@ -1,15 +1,17 @@
 # 企微智能运营 Agent 平台
 
-面向金融合同与产品要素查询的智能 Agent 系统，部署于企业微信（企微）生态。
+面向金融合同与产品要素查询的 Agent 原型，包含 FastAPI 后端、React 演示界面和企业微信加密回调接入。
+
+**当前边界**：GitHub Pages 为静态演示；默认安装使用 BM25 检索，混合检索和 vLLM 需要额外依赖及模型。企微回调已实现本地验签/解密，主动发送回复尚未接通。量化页面使用确定性合成数据，不能据此判断投资效果。
 
 ## 核心能力
 
-| 模块 | 技术方案 | 指标 |
+| 模块 | 技术方案 | 当前实现 |
 |------|---------|------|
-| PDF 结构化解析 | pdfplumber + PyMuPDF，跨页表格合并，字段标准化 | 80 份 PDF → 结构化 JSON |
-| 混合检索 | BM25 + bge-large-zh + bge-reranker-v2-m3，RRF 融合 | Recall@10 ≥91%, Precision@3 ≥87% |
+| PDF 结构化解析 | pdfplumber + PyMuPDF，跨页表格合并，字段标准化 | 表格与正文持久化、跨页表格恢复 |
+| 混合检索 | BM25 + bge-large-zh + bge-reranker-v2-m3，RRF 融合 | 默认 BM25；向量召回与重排为可选依赖 |
 | 多工具 Agent | LangGraph StateGraph，4 节点流水线 | 11 类业务工具，可追踪输出 |
-| LLM 推理 | vLLM 私有化 Qwen3-14B AWQ | ~6s → <0.5s |
+| LLM 推理 | OpenAI 兼容 HTTP 接口，可连接 vLLM | 异步调用、精确请求缓存、有限重试 |
 | 量化因子引擎 | CAPM 风险因子 + 多因子 z-score 排行榜（向量化、无前视） | Beta/Sharpe/Sortino/VaR/CVaR 等 12 项 |
 | 财报分析 | 三大表解析 → 财务比率 → 同比趋势 → 异常预警 | ROE/毛利率/资产负债率等 11 项 |
 | 因子回测 | 动量因子策略回测（A 股合规：warmup/次日均价/T+1/费用） | 标准三件套 + 专家仪表盘 |
@@ -19,9 +21,9 @@
 ```
 .
 ├── config/
-│   ├── settings.py          # 全局配置 (pydantic-settings)
-│   └── .env.example         # 环境变量模板
+│   └── settings.py          # 兼容导入（配置实际位于 src/config/）
 ├── src/
+│   ├── config/              # 环境变量配置
 │   ├── main.py              # FastAPI 入口 + 路由
 │   ├── agents/
 │   │   └── financial_agent.py   # LangGraph Agent 引擎
@@ -59,9 +61,15 @@
 
 ### 1. 安装依赖
 
+Python 3.12 或 3.13；前端需要 Node.js 20.19+ 或 22.12+。
+
 ```bash
-pip install -e ".[dev]"
+uv sync --locked --extra dev
 ```
+
+默认安装不下载向量模型，也不安装 vLLM。需要完整混合检索时执行 `uv sync --locked --extra dev --extra retrieval`；Linux GPU 上自托管模型再添加 `--extra inference`。模型文件、GPU/CUDA 兼容性与真实服务需在部署环境验证。
+
+也可使用 `pip install -e ".[dev]"`，但该方式不使用 `uv.lock` 固定依赖版本。
 
 ### 2. 配置环境变量
 
@@ -69,6 +77,8 @@ pip install -e ".[dev]"
 cp .env.example .env
 # 编辑 .env 填写实际配置
 ```
+
+生产环境设置 `ENV=production` 和至少 32 字符的 `API_KEY`；业务接口使用 `Authorization: Bearer <API_KEY>`。开发环境未设置密钥时允许本地调试。`CORS_ORIGINS` 填写前端来源，使用 Pages 的 Live 模式时添加 `https://dev-belly.github.io`。
 
 ### 3. 启动服务
 
@@ -78,7 +88,7 @@ bash scripts/start_all.sh [GPU_ID]
 
 # 方式二：分别启动
 bash scripts/start_vllm.sh 0      # GPU 0 启动 vLLM (port 8000)
-python -m uvicorn src.main:app --host 0.0.0.0 --port 9000 --reload
+uv run --locked uvicorn src.main:app --host 127.0.0.1 --port 9000 --reload
 ```
 
 ### 4. 使用 API
@@ -104,6 +114,8 @@ curl -X POST http://localhost:9000/api/eval \
 ```
 
 API 文档：http://localhost:9000/docs
+
+评估接口只接受 `data/eval` 下不超过 5 MB 的 JSON 数组，每条记录含 `query` 与 `relevant_texts`。Recall@K 按检索结果覆盖的标注文本比例计算，Precision@K 按前 K 条命中比例计算；样例仅展示格式，需要先建立对应文档索引。仓库未提供支持 91%/87% 或亚秒级延迟的实测报告。
 
 ## 11 类业务工具
 
@@ -136,7 +148,7 @@ API 文档：http://localhost:9000/docs
 ```bash
 # 复现因子计算与回测
 python scripts/compute_demo.py                 # 打印全市场因子/财报数值(JSON)
-python -m factors.factor_backtest --code 688001.SH --out data/backtest
+python -m src.factors.factor_backtest --code 688001.SH --out data/backtest
 ```
 
 ## 性能优化策略
@@ -150,7 +162,9 @@ python -m factors.factor_backtest --code 688001.SH --out data/backtest
 ## 运行测试
 
 ```bash
-pytest tests/test_core.py -v
+uv run --locked ruff check .
+uv run --locked pytest -q
+uv build --wheel --out-dir dist
 ```
 
 ---
@@ -165,7 +179,7 @@ pytest tests/test_core.py -v
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev          # http://localhost:5173
 ```
 
@@ -179,18 +193,11 @@ npm run build        # 产物输出到 web/dist/
 
 当前采用 **gh-pages 分支**部署（构建产物直接推送到 `gh-pages` 分支，GitHub Pages 从该分支提供服务）。该方式无需 `workflow` 权限即可发布。
 
-如需改为 **GitHub Actions 自动部署**（推送 `main` 即自动构建发布），仓库已附带 `.github/workflows/deploy.yml`。因推送 Actions 工作流需 `workflow` 权限，请先执行：
-
-```bash
-gh auth refresh -s workflow
-git add .github/workflows/deploy.yml
-git commit -m "ci: 添加 Pages 自动部署"
-git push
-```
+`.github/workflows/ci.yml` 会验证后端 lint、测试、wheel 安装和前端类型检查/构建。Pages 发布仍需将 `web/dist/` 构建结果更新到 `gh-pages` 分支。
 
 网页支持两种模式：
-- **Demo 模式**（默认）：内置样例数据，展示完整检索链路与工具调用追踪
-- **Live 模式**：填写后端 API 地址（FastAPI，默认 `:9000`），连接真实服务
+- **Demo 模式**（默认）：内置样例数据，模拟检索链路与工具调用追踪；指标为演示值
+- **Live 模式**：填写后端 API 地址及 API Key（仅保留于当前浏览器会话），连接真实服务；检索质量显示未评估
 
 ### 界面构成
 
@@ -229,6 +236,5 @@ git push
 ├── data/                   # PDF / 解析结果 / 向量 / 评估
 ├── scripts/                # vLLM + 服务启动脚本
 ├── tests/                  # 单元测试 + 集成测试
-└── .github/workflows/      # GitHub Pages 部署工作流
+└── .github/workflows/      # 后端与前端质量检查
 ```
-
