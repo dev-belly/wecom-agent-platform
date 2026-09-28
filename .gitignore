@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 *.egg-info/
 .env
+logs/
 
 # Node / Vite
 node_modules/

@@ -78,7 +78,7 @@ cp .env.example .env
 # 编辑 .env 填写实际配置
 ```
 
-生产环境设置 `ENV=production` 和至少 32 字符的 `API_KEY`；业务接口使用 `Authorization: Bearer <API_KEY>`。开发环境未设置密钥时允许本地调试。`CORS_ORIGINS` 填写前端来源，使用 Pages 的 Live 模式时添加 `https://dev-belly.github.io`。
+生产环境设置 `ENV=production` 和至少 32 字符的 `API_KEY`；业务接口使用 `Authorization: Bearer <API_KEY>`。开发环境未设置密钥时仅允许本机调试。`CORS_ORIGINS` 填写前端来源，使用 Pages 的 Live 模式时添加 `https://dev-belly.github.io`。
 
 ### 3. 启动服务
 
@@ -90,6 +90,8 @@ bash scripts/start_all.sh [GPU_ID]
 bash scripts/start_vllm.sh 0      # GPU 0 启动 vLLM (port 8000)
 uv run --locked uvicorn src.main:app --host 127.0.0.1 --port 9000 --reload
 ```
+
+这两个脚本默认将模型服务和 API 都绑定在 `127.0.0.1`，避免无密钥开发服务暴露在局域网。`start_all.sh` 会等待两个服务就绪，按 Ctrl+C 同时停止；单独运行 `start_vllm.sh` 时，模型进程号写在 `logs/vllm.pid`。若需要远程访问，应在单独的部署配置中启用生产环境密钥和网络防护。
 
 ### 4. 使用 API
 
