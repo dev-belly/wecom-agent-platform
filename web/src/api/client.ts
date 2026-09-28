@@ -14,6 +14,7 @@ export async function sendToBackend(
   baseUrl: string,
   query: string,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<Message> {
   const url = baseUrl.replace(/\/+$/, '') + '/api/chat'
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -25,6 +26,7 @@ export async function sendToBackend(
     method: 'POST',
     headers,
     body: JSON.stringify({ message: query }),
+    signal,
   })
 
   if (!res.ok) {

@@ -104,7 +104,15 @@ def test_combined_launcher_stops_both_services_on_shutdown(tmp_path: Path) -> No
         assert model_pid is not None and api_pid is not None
         os.kill(model_pid, 0)
         os.kill(api_pid, 0)
-        calls = (tmp_path / "calls.txt").read_text(encoding="utf-8")
+        # The API PID file is written before the background Python process
+        # records its arguments. Wait for that independent process to start.
+        calls = ""
+        call_deadline = time.monotonic() + 5
+        while time.monotonic() < call_deadline:
+            calls = (tmp_path / "calls.txt").read_text(encoding="utf-8")
+            if calls.count("--host 127.0.0.1") == 2:
+                break
+            time.sleep(0.05)
         assert calls.count("--host 127.0.0.1") == 2
 
         process.send_signal(signal.SIGTERM)

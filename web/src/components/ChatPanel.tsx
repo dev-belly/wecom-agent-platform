@@ -73,12 +73,14 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey
+                  && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 e.preventDefault()
                 submit()
               }
             }}
             rows={1}
+            maxLength={2000}
             placeholder="输入您的问题，Enter 发送 / Shift+Enter 换行"
             className="flex-1 resize-none rounded-lg bg-ink border border-line px-3 py-2.5 text-sm text-fg outline-none focus:border-blue placeholder:text-muted max-h-32"
           />

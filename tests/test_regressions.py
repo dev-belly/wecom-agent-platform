@@ -2,6 +2,7 @@
 
 import base64
 import json
+import runpy
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -129,3 +130,10 @@ def test_crypto_rejects_malformed_base64():
 
     with pytest.raises(WeComCryptoError):
         decrypt_message("!" * 43, "!" * 32, "corp-id")
+
+
+def test_direct_python_entrypoint_stays_on_loopback():
+    main_file = Path(__file__).parents[1] / "src/main.py"
+    with patch("uvicorn.run") as run:
+        runpy.run_path(str(main_file), run_name="__main__")
+    assert run.call_args.kwargs["host"] == "127.0.0.1"
