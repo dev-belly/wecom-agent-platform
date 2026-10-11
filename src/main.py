@@ -99,7 +99,9 @@ async def require_api_key(
     if authorization and authorization.lower().startswith("bearer "):
         bearer = authorization[7:].strip()
     candidate = x_api_key or bearer
-    if not candidate or not secrets.compare_digest(candidate, configured):
+    if not candidate or not secrets.compare_digest(
+        candidate.encode("utf-8"), configured.encode("utf-8"),
+    ):
         raise HTTPException(
             status_code=401,
             detail="API 密钥无效",

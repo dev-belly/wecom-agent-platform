@@ -1,0 +1,2 @@
+# Keep shell launchers and UTF-8 fixtures unchanged across platforms.
+* text=auto eol=lf

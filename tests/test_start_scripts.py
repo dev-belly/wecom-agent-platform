@@ -9,7 +9,10 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+pytestmark = pytest.mark.skipif(os.name == "nt", reason="Linux vLLM launchers require POSIX process signals and executables")
 
 
 def _fake_launcher(tmp_path: Path) -> tuple[Path, dict[str, str]]:
