@@ -74,7 +74,7 @@ def test_evaluation_rejects_invalid_labels(labels):
 
 
 def test_evaluation_sample_is_valid_json():
-    samples = json.loads((Path(__file__).parents[1] / "data/eval/sample_eval.json").read_text())
+    samples = json.loads((Path(__file__).parents[1] / "data/eval/sample_eval.json").read_text(encoding="utf-8"))
     assert len(samples) == 8
     assert len(samples[2]["relevant_texts"]) == 2
 
@@ -97,6 +97,15 @@ def test_production_api_requires_configured_key(api_client, endpoint):
         assert api_client.get(endpoint).status_code == 401
         response = api_client.get(endpoint, headers={"Authorization": "Bearer " + "k" * 32})
         assert response.status_code == 200
+
+
+@pytest.mark.parametrize("header", [b"Authorization", b"X-API-Key"])
+def test_non_ascii_api_key_is_unauthorized_instead_of_crashing(api_client, header):
+    supplied = b"Bearer " + b"\xff" * 32 if header == b"Authorization" else b"\xff" * 32
+    with patch("src.main.settings.env", "production"), patch("src.main.settings.api_key", "k" * 32):
+        response = api_client.get("/api/index/status", headers=[(header, supplied)])
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
 
 
 def test_chat_rejects_blank_messages_and_system_history(api_client):

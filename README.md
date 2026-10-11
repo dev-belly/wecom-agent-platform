@@ -71,6 +71,18 @@ uv sync --locked --extra dev
 
 也可使用 `pip install -e ".[dev]"`，但该方式不使用 `uv.lock` 固定依赖版本。
 
+Windows PowerShell 可直接启动 API 和执行离线测试：
+
+```powershell
+uv sync --locked --extra dev
+Copy-Item .env.example .env
+uv run --locked pytest -q
+uv run --locked uvicorn src.main:app --host 127.0.0.1 --port 9000
+```
+
+vLLM 的两个 Bash 启动脚本及其进程测试适用于 Linux/POSIX；
+Windows CI 验证 API、检索、鉴权与安装后的包，跳过这两个进程测试。
+
 ### 2. 配置环境变量
 
 ```bash
