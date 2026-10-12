@@ -4,6 +4,15 @@
 
 **当前边界**：GitHub Pages 为静态演示；默认安装使用 BM25 检索，混合检索和 vLLM 需要额外依赖及模型。企微回调已实现本地验签/解密，主动发送回复尚未接通。量化页面使用确定性合成数据，不能据此判断投资效果。
 
+合同筛选与客户持仓汇总现在有独立的确定性业务路径：对**全部已索引表格行**执行条件查询，不用检索前 10 条来冒充完整结果。合同编号/客户身份精确匹配，签约日期为闭区间；金额使用 Decimal，保留业务编号前导零，按明确币种汇总。缺失估值不会被算作零。每条结果附带文件、页码、表格和行号。
+
+```bash
+uv sync --locked --extra dev
+uv run --locked python scripts/business_query_demo.py
+```
+
+这条离线命令使用仓库中的**虚构解析结果**，不加载模型、不调用 API、不下载向量模型；会验证精确合同查询、人民币金额/日期筛选、完整持仓汇总，以及估值缺失时拒绝给出完整总额。业务规则、接口示例和面试讲解见 [`docs/business-workflow.md`](docs/business-workflow.md)。
+
 ## 核心能力
 
 | 模块 | 技术方案 | 当前实现 |
@@ -116,6 +125,16 @@ curl http://localhost:9000/health
 curl -X POST http://localhost:9000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "查询合同 HT20240315001 的信息"}'
+
+# 确定性合同查询（无需模型；需先导入并构建文档索引）
+curl -X POST http://localhost:9000/api/contracts/query \
+  -H "Content-Type: application/json" \
+  -d '{"date_range_start":"2024-01-01","date_range_end":"2024-12-31","min_amount":"1000.10","currency":"CNY"}'
+
+# 完整持仓汇总（结果金额为精确十进制字符串）
+curl -X POST http://localhost:9000/api/holdings/query \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"C10086"}'
 
 # 构建索引
 curl -X POST http://localhost:9000/api/index/build \

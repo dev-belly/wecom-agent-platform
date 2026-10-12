@@ -23,6 +23,12 @@ from src.models.llm_client import get_llm_client, warmup
 from src.parsers.pdf_parser import FinancialPDFParser
 from src.retrieval.hybrid_retriever import HybridRetriever
 from src.services.wecom_crypto import WeComCryptoError, decrypt_message, verify_signature
+from src.tools.business_tools import (
+    ContractQueryParams,
+    ContractQueryTool,
+    CustomerHoldingParams,
+    CustomerHoldingTool,
+)
 
 # ── 请求/响应模型 ─────────────────────────────────────
 
@@ -215,6 +221,8 @@ async def root():
             "wecom_callback": "/wecom/callback",
             "build_index": "/api/index/build",
             "eval": "/api/eval",
+            "contracts": "/api/contracts/query",
+            "holdings": "/api/holdings/query",
         },
     }
 
@@ -255,6 +263,40 @@ async def chat(req: ChatRequest):
     except Exception as e:
         logger.error(f"聊天处理异常: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="聊天服务暂时不可用") from e
+
+
+# ── 企微回调 ──────────────────────────────────────────
+
+def _business_retriever() -> HybridRetriever:
+    if retriever is None or not retriever._initialized:
+        raise HTTPException(status_code=503, detail="请先构建文档索引")
+    return retriever
+
+
+@app.post("/api/contracts/query", dependencies=[Depends(require_api_key)])
+async def query_contracts(req: ContractQueryParams):
+    """Deterministically query all indexed contract rows without an LLM.
+
+    IDs match exactly, party names use containment, dates are inclusive, and
+    monetary thresholds require a currency. Results include their source page.
+    """
+    try:
+        return ContractQueryTool(_business_retriever()).execute(**req.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/holdings/query", dependencies=[Depends(require_api_key)])
+async def query_holdings(req: CustomerHoldingParams):
+    """Exact customer/product selection with complete, currency-separated totals.
+
+    Money is serialized as exact decimal strings. Incomplete valuations return
+    partial subtotals, warnings and a null overall total, instead of a fake zero.
+    """
+    try:
+        return CustomerHoldingTool(_business_retriever()).execute(**req.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 # ── 企微回调 ──────────────────────────────────────────

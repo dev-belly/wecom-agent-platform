@@ -30,13 +30,15 @@ class HybridRetriever:
       4. 最终截断返回 (top_k=3)
     """
 
-    def __init__(self):
+    def __init__(self, *, enable_optional_models: bool = True):
         self.settings = get_settings()
+        self.enable_optional_models = enable_optional_models
 
         # ── BM25 ──
         self.bm25: Optional[BM25Okapi] = None
         self.bm25_docs: list[str] = []       # 原始文档文本（对应 bm25 index）
         self.bm25_metadatas: list[dict] = []  # 对应元数据
+        self.structured_rows: list[dict] = []  # 完整表格记录；业务筛选不依赖召回排名
 
         # ── Embedding ──
         self.encoder: Optional["SentenceTransformer"] = None
@@ -59,19 +61,25 @@ class HybridRetriever:
         # 收集所有文本块
         all_chunks: list[str] = []
         all_metadatas: list[dict] = []
+        structured_rows: list[dict] = []
 
         for doc in parsed_docs:
             # 表格数据转为文本块
             for table in doc.tables:
-                for row in table.rows:
+                for row_index, row in enumerate(table.rows):
                     chunk = " | ".join(f"{k}:{v}" for k, v in row.items() if v is not None)
                     if chunk.strip():
                         all_chunks.append(chunk)
-                        all_metadatas.append({
+                        metadata = {
                             "source": doc.source_file,
                             "type": "table_row",
                             "page": table.page_num,
-                        })
+                            "page_end": table.page_end or table.page_num,
+                            "table_index": table.table_index,
+                            "row_index": row_index,
+                        }
+                        all_metadatas.append(metadata)
+                        structured_rows.append({"text": chunk, "metadata": metadata, "row": dict(row)})
 
             # 全文按段落切分（BM25 用）
             paragraphs = [p.strip() for p in doc.raw_text.split("\n") if len(p.strip()) > 20]
@@ -91,11 +99,16 @@ class HybridRetriever:
         self._build_bm25(all_chunks, all_metadatas)
 
         # 2. 向量索引
-        self._build_vector_index(all_chunks, all_metadatas)
+        if self.enable_optional_models:
+            self._build_vector_index(all_chunks, all_metadatas)
+            # 3. 加载 Reranker
+            self._load_reranker()
+        else:
+            self.encoder = None
+            self.collection = None
+            self.reranker = None
 
-        # 3. 加载 Reranker
-        self._load_reranker()
-
+        self.structured_rows = structured_rows
         self._initialized = True
         logger.info("✅ 混合检索索引构建完成")
 

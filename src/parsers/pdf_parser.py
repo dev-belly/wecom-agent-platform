@@ -169,7 +169,7 @@ class FinancialPDFParser:
                         for col_idx, cell in enumerate(row or []):
                             if col_idx < len(clean_headers):
                                 key = clean_headers[col_idx]
-                                row_dict[key] = self._normalize_cell(cell)
+                                row_dict[key] = self._normalize_cell(cell, header=key)
                         if any(v for v in row_dict.values()):
                             rows.append(row_dict)
                     if rows:
@@ -210,15 +210,28 @@ class FinancialPDFParser:
             "成立日期": "签约日期", "起息日": "签约日期",
             "终止日期": "到期日期", "到期日": "到期日期",
         }
+        unit_header = re.fullmatch(r"(.+?)([（(](?:亿元|万元|元)[）)])", h)
+        if unit_header:
+            base, unit = unit_header.groups()
+            return alias_map.get(base, base) + unit
         return alias_map.get(h, h)
 
     @staticmethod
-    def _normalize_cell(cell: object) -> str | float | None:
+    def _normalize_cell(cell: object, header: str = "") -> str | float | None:
         """清洗单元格值"""
         if cell is None:
             return None
         s = str(cell).strip()
         s = re.sub(r"[\s\n\r\t]+", " ", s)
+        # Business identifiers and money must survive ingestion verbatim. A
+        # numeric-looking product code can start with zero; float conversion
+        # would also erase monetary precision and the original unit evidence.
+        base_header = re.sub(r"[（(](?:亿元|万元|元)[）)]$", "", header)
+        canonical = FIELD_STANDARDIZATION.get(base_header, base_header)
+        if canonical in {"contract_id", "customer_id", "product_code", "contract_amount", "holding_value"} or any(
+            field in header for field in ("合同金额", "持仓市值")
+        ):
+            return s if s else None
         # 尝试转数字
         try:
             # 处理千分位和百分号

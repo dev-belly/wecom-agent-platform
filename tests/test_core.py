@@ -117,7 +117,7 @@ class TestBusinessTools:
     def test_contract_params_validation(self):
         from src.tools.business_tools import ContractQueryParams
 
-        params = ContractQueryParams(contract_id="HT001", min_amount=1000)
+        params = ContractQueryParams(contract_id="HT001", min_amount=1000, currency="CNY")
         assert params.contract_id == "HT001"
         assert params.min_amount == 1000
 
