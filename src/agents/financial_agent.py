@@ -9,6 +9,7 @@ from typing import Any, TypedDict
 from langchain_core.tools import tool as lc_tool
 from langgraph.graph import END, StateGraph
 from loguru import logger
+from pydantic import ValidationError
 
 from src.config.settings import get_settings
 from src.retrieval.hybrid_retriever import HybridRetriever
@@ -129,10 +130,16 @@ def validate_params(state: AgentState) -> AgentState:
         params = state.get("tool_params", {})
         if not isinstance(params, dict):
             raise TypeError("工具参数必须是 JSON 对象")
+        if tool_cls.parameters_model is not None:
+            validated = tool_cls.parameters_model.model_validate(params)
+            state["tool_params"] = validated.model_dump(mode="json", exclude_none=True)
 
         state["timestamps"]["validate"] = time.time() - start
         logger.info(f"参数校验通过: {intent}")
 
+    except ValidationError as e:
+        problem = e.errors()[0]["msg"].removeprefix("Value error, ")
+        state["final_response"] = f"请补充或修正查询条件：{problem}。"
     except Exception as e:
         logger.warning(f"参数校验未通过: {e}")
         state["error"] = f"参数校验失败: {e}"
@@ -177,7 +184,11 @@ RESPONSE_SYSTEM_PROMPT = """你是一个专业的金融运营助手。基于工�
 2. 数据以表格或列表形式呈现
 3. 如果没有数据，明确告知
 4. 涉及金额时保留合适的小数位数
-5. 不要暴露内部技术细节（如工具名、trace_id 等）"""
+5. 不要暴露内部技术细节（如工具名、trace_id 等）
+6. 金额字符串是精确十进制值，原样引用并注明币种；不要自行汇率换算或重算金额
+7. totals_complete=false 时，明确说明仅有部分小计，不能称为完整持仓总额；必须保留 warnings
+8. truncated=true 时，说明列表只展示部分记录，count 和汇总覆盖全部匹配表格行
+9. 结构化表格结果注明来源文件及页码，不能把未导入文档称为已查询"""
 
 
 async def format_response(state: AgentState, llm_client) -> AgentState:
@@ -237,11 +248,21 @@ def _format_fallback(tool_result: dict) -> str:
     results = tool_result.get("results", [])
     count = tool_result.get("count", len(results))
     lines = [f"找到 {count} 条相关信息："]
+    if tool_result.get("query_scope") == "all_indexed_table_rows":
+        lines.append("范围：全部已索引表格记录，不含未导入文档。")
+    for currency, amount in tool_result.get("total_value_by_currency", {}).items():
+        label = "持仓总额" if tool_result.get("totals_complete") else "可计价记录小计"
+        lines.append(f"{label}（{currency}）：{amount}")
+    lines.extend(tool_result.get("warnings", []))
 
     for i, r in enumerate(results[:5], 1):
         text = r.get("text", "")[:80]
-        score = r.get("rerank_score", r.get("score", 0))
-        lines.append(f"{i}. (相关度: {score:.2f}) {text}")
+        if r.get("source") == "structured_table":
+            metadata = r.get("metadata", {})
+            lines.append(f"{i}. {text}（来源：{metadata.get('source', '未知')}，第 {metadata.get('page', '?')} 页）")
+        else:
+            score = r.get("rerank_score", r.get("score", 0))
+            lines.append(f"{i}. (相关度: {score:.2f}) {text}")
 
     if count > 5:
         lines.append(f"... 共 {count} 条，已展示前 5 条")

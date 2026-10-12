@@ -3,22 +3,51 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Context, Decimal, localcontext
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.retrieval.hybrid_retriever import HybridRetriever
+from src.tools.structured_records import (
+    decimal_text,
+    normalize_currency,
+    normalize_row,
+    parse_money,
+)
 
 # ── 工具参数模型（自动校验）─
 
 class ContractQueryParams(BaseModel):
     """合同查询参数"""
+    model_config = ConfigDict(extra="forbid")
     contract_id: Optional[str] = Field(None, description="合同编号")
     party_a: Optional[str] = Field(None, description="甲方名称")
     party_b: Optional[str] = Field(None, description="乙方名称")
     date_range_start: Optional[date] = Field(None, description="签约日期起始")
     date_range_end: Optional[date] = Field(None, description="签约日期截止")
-    min_amount: Optional[float] = Field(None, gt=0, description="最小金额")
+    min_amount: Optional[Decimal] = Field(None, gt=0, description="最小金额，指定币种的基本单位，需同时提供 currency")
+    currency: Optional[str] = Field(None, description="金额筛选币种，如 CNY；不做汇率换算")
+
+    @field_validator("contract_id", "party_a", "party_b")
+    @classmethod
+    def nonblank_filter(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("筛选条件不能为空")
+        return value.strip() if value is not None else None
+
+    @field_validator("currency")
+    @classmethod
+    def currency_label(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_currency(value)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "ContractQueryParams":
+        if self.date_range_start and self.date_range_end and self.date_range_start > self.date_range_end:
+            raise ValueError("签约起始日期不能晚于截止日期")
+        if self.min_amount is not None and self.currency is None:
+            raise ValueError("金额筛选必须指定币种，例如 CNY")
+        return self
 
 
 class ProductNavQueryParams(BaseModel):
@@ -30,9 +59,17 @@ class ProductNavQueryParams(BaseModel):
 
 class CustomerHoldingParams(BaseModel):
     """客户持仓查询参数"""
+    model_config = ConfigDict(extra="forbid")
     customer_id: Optional[str] = Field(None, description="客户编号")
     customer_name: Optional[str] = Field(None, description="客户姓名")
     product_code: Optional[str] = Field(None, description="产品代码（筛选）")
+
+    @field_validator("customer_id", "customer_name", "product_code")
+    @classmethod
+    def nonblank_filter(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("筛选条件不能为空")
+        return value.strip() if value is not None else None
 
 
 class RiskAssessmentParams(BaseModel):
@@ -65,6 +102,7 @@ class BaseTool:
     name: str = ""
     description: str = ""
     parameters_schema: dict = {}
+    parameters_model: type[BaseModel] | None = None
 
     def __init__(self, retriever: HybridRetriever):
         self.retriever = retriever
@@ -75,6 +113,25 @@ class BaseTool:
     def _search(self, query: str, top_k: int = 5) -> list[dict]:
         """统一调用混合检索"""
         return self.retriever.retrieve(query, top_k=top_k)
+
+    def _table_rows(self):
+        """Scan all indexed table rows, retaining evidence and excluding prose.
+
+        Similarity search is appropriate for discovery. Structured predicates
+        and complete totals cannot be defined over a ranked top-k sample.
+        """
+        if not self.retriever._initialized:
+            raise RuntimeError("索引未初始化，请先构建索引")
+        for record in self.retriever.structured_rows:
+            row, units = normalize_row(record["row"])
+            yield {"text": record["text"], "metadata": record["metadata"], "source": "structured_table", "parsed": row}, units
+
+    @staticmethod
+    def _matches(row: dict, field: str, expected: Optional[str], *, contains: bool = False) -> bool:
+        if expected is None:
+            return True
+        actual = str(row.get(field, "")).strip()
+        return expected in actual if contains else actual == expected
 
     @staticmethod
     def _parse_result_row(text: str) -> dict:
@@ -104,43 +161,48 @@ class ContractQueryTool(BaseTool):
     """工具 1: 合同信息查询"""
 
     name = "contract_query"
-    description = "查询金融合同信息，支持按合同编号、甲方、乙方、金额范围、签约日期等条件筛选"
+    description = "查询金融合同表格，合同编号精确匹配、甲乙方名称包含匹配、签约日期闭区间筛选；min_amount 需同时指定 currency（如 CNY），不换算币种"
     parameters_schema = ContractQueryParams.model_json_schema()
+    parameters_model = ContractQueryParams
 
     def execute(self, **kwargs) -> dict:
         params = ContractQueryParams(**kwargs)
-        conditions = []
-        if params.contract_id:
-            conditions.append(params.contract_id)
-        if params.party_a:
-            conditions.append(f"甲方:{params.party_a}")
-        if params.party_b:
-            conditions.append(f"乙方:{params.party_b}")
-        if params.min_amount:
-            conditions.append(f"金额>={params.min_amount}")
-
-        query = " ".join(conditions) if conditions else "合同信息"
-        results = self._search(query, top_k=10)
-
-        # 后过滤
         filtered = []
-        for r in results:
-            row = self._parse_result_row(r["text"])
-            if params.date_range_start and row.get("sign_date"):
-                sd = self._parse_date(row["sign_date"])
-                if sd and sd < params.date_range_start:
+        for record, units in self._table_rows():
+            row = record["parsed"]
+            if not row.get("contract_id"):
+                continue
+            if not (self._matches(row, "contract_id", params.contract_id)
+                    and self._matches(row, "party_a", params.party_a, contains=True)
+                    and self._matches(row, "party_b", params.party_b, contains=True)):
+                continue
+            if params.date_range_start or params.date_range_end:
+                sign_date = self._parse_date(str(row.get("sign_date", "")))
+                if sign_date is None:
                     continue
-            if params.date_range_end and row.get("sign_date"):
-                ed = self._parse_date(row["sign_date"])
-                if ed and ed > params.date_range_end:
+                if params.date_range_start and sign_date < params.date_range_start:
                     continue
-            filtered.append({**r, "parsed": row})
+                if params.date_range_end and sign_date > params.date_range_end:
+                    continue
+            if params.min_amount is not None or params.currency:
+                try:
+                    amount, currency = parse_money(row.get("contract_amount"), row.get("currency"), units.get("contract_amount", ""))
+                except ValueError:
+                    continue
+                if currency != params.currency or (params.min_amount is not None and amount < params.min_amount):
+                    continue
+                record["amount"] = decimal_text(amount)
+                record["currency"] = currency
+            filtered.append(record)
 
         return {
             "tool": self.name,
-            "params": kwargs,
+            "params": params.model_dump(mode="json", exclude_none=True),
             "count": len(filtered),
             "results": filtered[:10],
+            "returned_count": min(len(filtered), 10),
+            "truncated": len(filtered) > 10,
+            "query_scope": "all_indexed_table_rows",
         }
 
 
@@ -181,40 +243,55 @@ class CustomerHoldingTool(BaseTool):
     """工具 3: 客户持仓查询"""
 
     name = "customer_holding"
-    description = "查询客户持仓信息，包括持仓份额、持仓市值等"
+    description = "按客户编号、姓名和产品代码精确筛选全部已索引持仓表格，Decimal 精确汇总并分币种；无法确定币种或金额时不生成完整总额"
     parameters_schema = CustomerHoldingParams.model_json_schema()
+    parameters_model = CustomerHoldingParams
 
     def execute(self, **kwargs) -> dict:
         params = CustomerHoldingParams(**kwargs)
-        parts = ["客户", "持仓"]
-        if params.customer_id:
-            parts.append(params.customer_id)
-        if params.customer_name:
-            parts.append(params.customer_name)
-        if params.product_code:
-            parts.append(params.product_code)
-
-        query = " ".join(parts)
-        results = self._search(query, top_k=10)
-
         parsed_results = []
-        for r in results:
-            row = self._parse_result_row(r["text"])
-            parsed_results.append({**r, "parsed": row})
-
-        # 汇总
-        total_value = sum(
-            (p.get("parsed", {}).get("holding_value") or 0)
-            for p in parsed_results
-            if isinstance(p.get("parsed", {}).get("holding_value"), (int, float))
-        )
+        totals: dict[str, Decimal] = {}
+        incomplete = 0
+        warnings: list[str] = []
+        with localcontext(Context(prec=64)):
+            for record, units in self._table_rows():
+                row = record["parsed"]
+                if not (row.get("customer_id") or row.get("customer_name")) or not row.get("product_code"):
+                    continue
+                if not all(self._matches(row, field, getattr(params, field)) for field in ("customer_id", "customer_name", "product_code")):
+                    continue
+                try:
+                    amount, currency = parse_money(row.get("holding_value"), row.get("currency"), units.get("holding_value", ""))
+                    record["holding_value"] = decimal_text(amount)
+                    record["currency"] = currency
+                    if currency is None:
+                        raise ValueError("持仓市值未声明币种")
+                    totals[currency] = totals.get(currency, Decimal(0)) + amount
+                except ValueError as exc:
+                    incomplete += 1
+                    record["amount_error"] = str(exc)
+                parsed_results.append(record)
+        if incomplete:
+            warnings.append(f"{incomplete} 条持仓金额或币种不明确；分币种金额仅为可计价记录小计，完整总额不可用。")
+        if len(totals) > 1:
+            warnings.append("持仓包含多种币种，分别汇总；未进行汇率换算。")
+        complete = incomplete == 0
+        total_value = decimal_text(next(iter(totals.values()))) if complete and len(totals) == 1 else None
 
         return {
             "tool": self.name,
-            "params": kwargs,
+            "params": params.model_dump(mode="json", exclude_none=True),
             "count": len(parsed_results),
             "total_value": total_value,
+            "total_currency": next(iter(totals)) if total_value is not None else None,
+            "total_value_by_currency": {currency: decimal_text(amount) for currency, amount in sorted(totals.items())},
+            "totals_complete": complete,
+            "unpriced_count": incomplete,
+            "warnings": warnings,
             "results": parsed_results[:20],
+            "returned_count": min(len(parsed_results), 20),
+            "truncated": len(parsed_results) > 20,
+            "query_scope": "all_indexed_table_rows",
         }
 
 
