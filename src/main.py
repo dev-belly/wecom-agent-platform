@@ -169,6 +169,8 @@ async def lifespan(app: FastAPI):
     llm_client = get_llm_client()
     if hasattr(llm_client, 'close'):
         await llm_client.close()
+    if retriever is not None:
+        retriever.close()
     logger.info("👋 服务已关闭")
 
 
@@ -282,6 +284,8 @@ async def query_contracts(req: ContractQueryParams):
     """
     try:
         return ContractQueryTool(_business_retriever()).execute(**req.model_dump(exclude_none=True))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="请先构建文档索引") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -295,6 +299,8 @@ async def query_holdings(req: CustomerHoldingParams):
     """
     try:
         return CustomerHoldingTool(_business_retriever()).execute(**req.model_dump(exclude_none=True))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="请先构建文档索引") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -404,34 +410,46 @@ async def _handle_wecom_message(user_msg: str, from_user: str):
 # ── 索引管理 ──────────────────────────────────────────
 
 @app.post("/api/index/build", dependencies=[Depends(require_api_key)])
-async def build_index(req: BuildIndexRequest):
+def build_index(req: BuildIndexRequest):
     """触发 PDF 解析 + 索引构建"""
+    if retriever is None:
+        raise HTTPException(status_code=503, detail="检索服务尚未就绪")
     parser = FinancialPDFParser(settings.pdf_input_dir, settings.parsed_output_dir)
     docs = parser.parse_all()
 
     if not docs:
         raise HTTPException(status_code=422, detail="PDF 目录中没有可解析文档")
-    if retriever is None:
-        raise HTTPException(status_code=503, detail="检索服务尚未就绪")
-    if req.force_rebuild or not retriever._initialized:
-        retriever.build_index_from_parsed(docs)
+    rebuilt = req.force_rebuild or not retriever._initialized
+    revision = retriever.index_revision
+    if rebuilt:
+        try:
+            revision = retriever.build_index_from_parsed(docs)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="解析内容无法构建索引，原索引未变更") from exc
+        except Exception as exc:
+            logger.error(f"索引重建失败: {traceback.format_exc()}")
+            raise HTTPException(status_code=503, detail={
+                "message": "索引重建失败，未发布新版本；请检查模型与向量服务后重试",
+                "index_preserved": retriever._initialized,
+                "index_revision": retriever.index_revision,
+            }) from exc
 
     return {
-        "status": "ok",
+        "status": "ok" if rebuilt else "unchanged",
         "documents_parsed": len(docs),
         "tables_total": sum(len(d.tables) for d in docs),
         "index_initialized": retriever._initialized,
+        "index_rebuilt": rebuilt,
+        "index_revision": revision,
     }
 
 
 @app.get("/api/index/status", dependencies=[Depends(require_api_key)])
 async def index_status():
     """查看索引状态"""
-    collection = retriever.collection if retriever else None
-    return {
-        "initialized": retriever._initialized if retriever else False,
-        "document_count": collection.count() if collection else 0,
-        "bm25_docs": len(retriever.bm25_docs) if retriever else 0,
+    return retriever.index_status() if retriever else {
+        "initialized": False, "document_count": 0, "bm25_docs": 0,
+        "structured_rows": 0, "index_revision": None, "cleanup_pending": 0,
     }
 
 
@@ -485,12 +503,12 @@ async def performance_stats():
     except Exception:
         pass
 
+    index = retriever.index_status() if retriever else {}
     return {
         "llm": llm_stats,
         "retriever": {
-            "initialized": retriever._initialized if retriever else False,
-            "bm25_docs": len(retriever.bm25_docs) if retriever else 0,
-            "vector_count": retriever.collection.count() if retriever and retriever.collection else 0,
+            **index,
+            "vector_count": index.get("document_count", 0),
         } if retriever else {},
     }
 

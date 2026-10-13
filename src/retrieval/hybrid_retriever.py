@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -12,11 +14,10 @@ from rank_bm25 import BM25Okapi
 
 if TYPE_CHECKING:
     from chromadb.api.models.Collection import Collection
-    from FlagEmbedding import FlagReranker
-    from sentence_transformers import SentenceTransformer
 
 from src.config.settings import get_settings
 from src.parsers.pdf_parser import ParsedDocument
+from src.retrieval.index_snapshot import IndexSnapshot, IndexSnapshotStore
 
 
 class HybridRetriever:
@@ -34,28 +35,67 @@ class HybridRetriever:
         self.settings = get_settings()
         self.enable_optional_models = enable_optional_models
 
-        # ── BM25 ──
-        self.bm25: Optional[BM25Okapi] = None
-        self.bm25_docs: list[str] = []       # 原始文档文本（对应 bm25 index）
-        self.bm25_metadatas: list[dict] = []  # 对应元数据
-        self.structured_rows: list[dict] = []  # 完整表格记录；业务筛选不依赖召回排名
+        self._snapshots = IndexSnapshotStore()
+        self._build_lock = Lock()
 
-        # ── Embedding ──
-        self.encoder: Optional["SentenceTransformer"] = None
+    @property
+    def _initialized(self) -> bool:
+        return self._snapshots.active is not None
 
-        # ── Vector DB ──
-        self.chroma_client: Optional[object] = None
-        self.collection: Optional["Collection"] = None
+    @property
+    def index_revision(self) -> str | None:
+        snapshot = self._snapshots.active
+        return snapshot.revision if snapshot else None
 
-        # ── Reranker ──
-        self.reranker: Optional["FlagReranker"] = None
+    @property
+    def bm25_docs(self) -> tuple[str, ...]:
+        snapshot = self._snapshots.active
+        return snapshot.bm25_docs if snapshot else ()
 
-        self._initialized = False
+    @property
+    def structured_rows(self) -> tuple[dict, ...]:
+        snapshot = self._snapshots.active
+        return snapshot.structured_rows if snapshot else ()
+
+    @property
+    def collection(self) -> Optional["Collection"]:
+        snapshot = self._snapshots.active
+        return snapshot.collection if snapshot else None
+
+    def read_snapshot(self):
+        """Pin one generation until retrieval or a business query finishes."""
+        return self._snapshots.capture()
+
+    def close(self) -> None:
+        self._snapshots.close()
+
+    def index_status(self) -> dict:
+        with self.read_snapshot() as snapshot:
+            return {
+                "initialized": snapshot is not None,
+                "index_revision": snapshot.revision if snapshot else None,
+                "bm25_docs": len(snapshot.bm25_docs) if snapshot else 0,
+                "structured_rows": len(snapshot.structured_rows) if snapshot else 0,
+                "document_count": snapshot.collection.count() if snapshot and snapshot.collection else 0,
+                "cleanup_pending": self._snapshots.cleanup_pending,
+            }
 
     # ── 构建 Index ────────────────────────────────────
 
-    def build_index_from_parsed(self, parsed_docs: list[ParsedDocument]) -> None:
-        """从已解析的 PDF 文档构建全部索引"""
+    def build_index_from_parsed(self, parsed_docs: list[ParsedDocument]) -> str:
+        """Prepare privately; publish all layers together only on success."""
+        with self._build_lock:
+            self._snapshots.retry_cleanup()
+            snapshot = IndexSnapshot()
+            try:
+                self._prepare_snapshot(snapshot, parsed_docs)
+                self._snapshots.publish(snapshot)
+                return snapshot.revision
+            except BaseException:
+                self._snapshots.discard(snapshot)
+                raise
+
+    def _prepare_snapshot(self, snapshot: IndexSnapshot, parsed_docs: list[ParsedDocument]) -> None:
         logger.info("开始构建混合检索索引...")
 
         # 收集所有文本块
@@ -79,7 +119,7 @@ class HybridRetriever:
                             "row_index": row_index,
                         }
                         all_metadatas.append(metadata)
-                        structured_rows.append({"text": chunk, "metadata": metadata, "row": dict(row)})
+                        structured_rows.append({"text": chunk, "metadata": metadata, "row": deepcopy(row)})
 
             # 全文按段落切分（BM25 用）
             paragraphs = [p.strip() for p in doc.raw_text.split("\n") if len(p.strip()) > 20]
@@ -96,81 +136,72 @@ class HybridRetriever:
             raise ValueError("解析结果中没有可用于检索的文本内容")
 
         # 1. BM25 索引
-        self._build_bm25(all_chunks, all_metadatas)
+        self._build_bm25(snapshot, all_chunks, all_metadatas)
 
         # 2. 向量索引
         if self.enable_optional_models:
-            self._build_vector_index(all_chunks, all_metadatas)
+            self._build_vector_index(snapshot, all_chunks, all_metadatas)
             # 3. 加载 Reranker
-            self._load_reranker()
-        else:
-            self.encoder = None
-            self.collection = None
-            self.reranker = None
+            self._load_reranker(snapshot)
 
-        self.structured_rows = structured_rows
-        self._initialized = True
+        snapshot.structured_rows = tuple(structured_rows)
         logger.info("✅ 混合检索索引构建完成")
 
-    def _build_bm25(self, chunks: list[str], metadatas: list[dict]) -> None:
+    def _build_bm25(self, snapshot: IndexSnapshot, chunks: list[str], metadatas: list[dict]) -> None:
         """构建 BM25 索引"""
         if not chunks:
-            self.bm25 = None
-            self.bm25_docs = []
-            self.bm25_metadatas = []
             logger.warning("没有可用于 BM25 索引的文本块")
             return
         tokenized = [self._tokenize_zh(c) for c in chunks]
-        self.bm25 = BM25Okapi(tokenized)
-        self.bm25_docs = chunks
-        self.bm25_metadatas = metadatas
+        snapshot.bm25 = BM25Okapi(tokenized)
+        snapshot.bm25_docs = tuple(chunks)
+        snapshot.bm25_metadatas = tuple(metadatas)
         logger.info("BM25 索引就绪")
 
-    def _build_vector_index(self, chunks: list[str], metadatas: list[dict]) -> None:
+    def _build_vector_index(self, snapshot: IndexSnapshot, chunks: list[str], metadatas: list[dict]) -> None:
         """构建向量索引"""
         if not chunks:
-            self.encoder = None
-            self.collection = None
             return
         try:
             from chromadb import Client, Settings
             from sentence_transformers import SentenceTransformer
         except ImportError:
-            self.encoder = None
-            self.collection = None
             logger.warning('未安装可选向量检索依赖，继续使用 BM25；可执行 pip install -e ".[retrieval]" 启用')
             return
-        self.encoder = SentenceTransformer(self.settings.embedding_model, device=self.settings.embedding_device)
+        snapshot.encoder = SentenceTransformer(self.settings.embedding_model, device=self.settings.embedding_device)
 
         persist_dir = Path(self.settings.chroma_persist_dir)
         persist_dir.mkdir(parents=True, exist_ok=True)
 
-        self.chroma_client = Client(Settings(persist_directory=str(persist_dir), is_persistent=True))
-        self.collection = self.chroma_client.get_or_create_collection(
-            name=self.settings.collection_name,
-            metadata={"hnsw:space": "cosine"},
+        snapshot.chroma_client = Client(Settings(persist_directory=str(persist_dir), is_persistent=True))
+        name = f"{self.settings.collection_name[:20]}-snap-{snapshot.revision}"
+        snapshot.collection = snapshot.chroma_client.create_collection(
+            name=name,
+            metadata={"hnsw:space": "cosine", "snapshot_revision": snapshot.revision,
+                      "snapshot_owner": "wecom-agent-platform"},
+            embedding_function=None,
         )
+        snapshot.collection_name = name
 
         # 批量编码入库
         batch_size = 64
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
             batch_meta = metadatas[i : i + batch_size]
-            embeddings = self.encoder.encode(batch, normalize_embeddings=True).tolist()
+            embeddings = snapshot.encoder.encode(batch, normalize_embeddings=True).tolist()
             ids = [f"doc_{j}" for j in range(i, i + len(batch))]
-            self.collection.upsert(ids=ids, embeddings=embeddings, documents=batch, metadatas=batch_meta)
+            snapshot.collection.upsert(ids=ids, embeddings=embeddings, documents=batch, metadatas=batch_meta)
 
-        logger.info(f"向量索引就绪: {self.collection.count()} 条记录")
+        logger.info(f"向量索引就绪: {snapshot.collection.count()} 条记录")
 
-    def _load_reranker(self) -> None:
+    def _load_reranker(self, snapshot: IndexSnapshot) -> None:
         """加载 Reranker 模型"""
         try:
             from FlagEmbedding import FlagReranker
         except ImportError:
-            self.reranker = None
             logger.warning('未安装可选重排依赖，继续使用融合排序；可执行 pip install -e ".[retrieval]" 启用')
             return
-        self.reranker = FlagReranker(self.settings.reranker_model, use_fp16=True)
+        snapshot.reranker = FlagReranker(self.settings.reranker_model, use_fp16=True)
         logger.info("Reranker 模型加载完成")
 
     # ── 检索 ──────────────────────────────────────────
@@ -182,8 +213,12 @@ class HybridRetriever:
         Returns:
             排序后的结果列表，每项包含 {text, score, metadata, source}
         """
-        if not self._initialized:
-            raise RuntimeError("索引未初始化，请先调用 build_index_from_parsed()")
+        with self.read_snapshot() as snapshot:
+            if snapshot is None:
+                raise RuntimeError("索引未初始化，请先调用 build_index_from_parsed()")
+            return self._retrieve_on_snapshot(snapshot, query, top_k)
+
+    def _retrieve_on_snapshot(self, snapshot: IndexSnapshot, query: str, top_k: Optional[int]) -> list[dict]:
 
         final_k = top_k or self.settings.final_top_k
         bm25_k = self.settings.bm25_top_k
@@ -191,51 +226,57 @@ class HybridRetriever:
         rerank_k = self.settings.rerank_top_k
 
         # 1. BM25 召回
-        bm25_results = self._bm25_search(query, top_k=bm25_k)
+        bm25_results = self._bm25_search(query, top_k=bm25_k, snapshot=snapshot)
 
         # 2. 向量召回
-        vec_results = self._vector_search(query, top_k=vec_k)
+        vec_results = self._vector_search(query, top_k=vec_k, snapshot=snapshot)
 
         # 3. 融合去重（RRF — Reciprocal Rank Fusion）
         fused = self._rrf_fusion(bm25_results, vec_results)
 
         # 4. Rerank 重排
         candidates = fused[: rerank_k * 2]  # 多取一些给 reranker
-        reranked = self._rerank(query, candidates, top_k=rerank_k)
+        reranked = self._rerank(query, candidates, top_k=rerank_k, snapshot=snapshot)
 
         return reranked[:final_k]
 
-    def _bm25_search(self, query: str, top_k: int) -> list[dict]:
+    def _bm25_search(self, query: str, top_k: int, snapshot: IndexSnapshot | None = None) -> list[dict]:
         """BM25 关键词搜索"""
-        if self.bm25 is None:
+        if snapshot is None:
+            with self.read_snapshot() as captured:
+                return self._bm25_search(query, top_k, captured) if captured else []
+        if snapshot.bm25 is None:
             return []
         tokenized_query = self._tokenize_zh(query)
-        scores = self.bm25.get_scores(tokenized_query)
+        scores = snapshot.bm25.get_scores(tokenized_query)
         # Okapi scores can be zero/negative when terms occur in most documents,
         # including a one-document index. Token overlap determines eligibility.
         top_indices = [
             i for i in np.argsort(scores)[::-1]
-            if any(token in self.bm25.doc_freqs[i] for token in tokenized_query)
+            if any(token in snapshot.bm25.doc_freqs[i] for token in tokenized_query)
         ][:top_k]
 
         return [
             {
-                "text": self.bm25_docs[i],
+                "text": snapshot.bm25_docs[i],
                 "score": float(scores[i]),
-                "metadata": self.bm25_metadatas[i],
+                "metadata": snapshot.bm25_metadatas[i],
                 "source": "bm25",
             }
             for i in top_indices
         ]
 
-    def _vector_search(self, query: str, top_k: int) -> list[dict]:
+    def _vector_search(self, query: str, top_k: int, snapshot: IndexSnapshot | None = None) -> list[dict]:
         """Dense Vector 语义搜索"""
-        if self.encoder is None or self.collection is None:
+        if snapshot is None:
+            with self.read_snapshot() as captured:
+                return self._vector_search(query, top_k, captured) if captured else []
+        if snapshot.encoder is None or snapshot.collection is None:
             return []
-        query_embedding = self.encoder.encode([query], normalize_embeddings=True).tolist()[0]
-        results = self.collection.query(
+        query_embedding = snapshot.encoder.encode([query], normalize_embeddings=True).tolist()[0]
+        results = snapshot.collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k,
+            n_results=min(top_k, len(snapshot.bm25_docs)),
             include=["documents", "metadatas", "distances"],
         )
 
@@ -249,19 +290,24 @@ class HybridRetriever:
             })
         return items
 
-    def _rerank(self, query: str, candidates: list[dict], top_k: int) -> list[dict]:
+    def _rerank(self, query: str, candidates: list[dict], top_k: int, snapshot: IndexSnapshot | None = None) -> list[dict]:
         """Rerank 重排序"""
         if not candidates:
             return []
 
-        if self.reranker is None:
+        if snapshot is None:
+            with self.read_snapshot() as captured:
+                if captured is not None:
+                    return self._rerank(query, candidates, top_k, captured)
+        reranker = snapshot.reranker if snapshot else None
+        if reranker is None:
             return [
                 {**candidate, "rerank_score": float(candidate.get("rrf_score", 0.0))}
                 for candidate in candidates[:top_k]
             ]
 
         pairs = [[query, c["text"]] for c in candidates]
-        scores = self.reranker.compute_score(pairs)
+        scores = reranker.compute_score(pairs)
         if np.isscalar(scores):
             scores = [scores]
 

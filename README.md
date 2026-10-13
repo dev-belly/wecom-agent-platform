@@ -13,6 +13,8 @@ uv run --locked python scripts/business_query_demo.py
 
 这条离线命令使用仓库中的**虚构解析结果**，不加载模型、不调用 API、不下载向量模型；会验证精确合同查询、人民币金额/日期筛选、完整持仓汇总，以及估值缺失时拒绝给出完整总额。业务规则、接口示例和面试讲解见 [`docs/business-workflow.md`](docs/business-workflow.md)。
 
+索引重建采用单进程快照：BM25、向量和结构化表格全部准备成功后一起发布，失败继续保留完整旧版本。正在查询旧版本的请求结束后才清理旧向量集合；缩小语料不会混入旧版本尾部记录。重建接口会区分 `ok`、`unchanged` 和失败，并提供 `index_revision`。故障回归、清理策略及持久化边界见 [`docs/index-snapshots.md`](docs/index-snapshots.md)。
+
 ## 核心能力
 
 | 模块 | 技术方案 | 当前实现 |

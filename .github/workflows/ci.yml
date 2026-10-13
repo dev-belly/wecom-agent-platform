@@ -21,6 +21,10 @@ jobs:
       - run: uv sync --locked --extra dev
       - run: uv run --locked ruff check .
       - run: uv run --locked pytest -q
+      - name: Verify actual Chroma snapshot storage without model downloads
+        run: |
+          uv pip install --python .venv/bin/python chromadb==1.5.9
+          .venv/bin/python -m pytest tests/test_index_snapshots.py -k actual_chroma -q
       - run: uv build --wheel --out-dir dist
       - name: Verify installed wheel outside the source tree
         run: |
