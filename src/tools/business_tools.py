@@ -9,6 +9,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.retrieval.hybrid_retriever import HybridRetriever
+from src.retrieval.index_snapshot import IndexSnapshot
 from src.tools.structured_records import (
     decimal_text,
     normalize_currency,
@@ -114,15 +115,19 @@ class BaseTool:
         """统一调用混合检索"""
         return self.retriever.retrieve(query, top_k=top_k)
 
-    def _table_rows(self):
+    def _table_rows(self, snapshot: IndexSnapshot | None = None):
         """Scan all indexed table rows, retaining evidence and excluding prose.
 
         Similarity search is appropriate for discovery. Structured predicates
         and complete totals cannot be defined over a ranked top-k sample.
         """
-        if not self.retriever._initialized:
-            raise RuntimeError("索引未初始化，请先构建索引")
-        for record in self.retriever.structured_rows:
+        if snapshot is None:
+            with self.retriever.read_snapshot() as captured:
+                if captured is None:
+                    raise RuntimeError("索引未初始化，请先构建索引")
+                yield from self._table_rows(captured)
+            return
+        for record in snapshot.structured_rows:
             row, units = normalize_row(record["row"])
             yield {"text": record["text"], "metadata": record["metadata"], "source": "structured_table", "parsed": row}, units
 
@@ -167,8 +172,14 @@ class ContractQueryTool(BaseTool):
 
     def execute(self, **kwargs) -> dict:
         params = ContractQueryParams(**kwargs)
+        with self.retriever.read_snapshot() as snapshot:
+            if snapshot is None:
+                raise RuntimeError("索引未初始化，请先构建索引")
+            return self._execute_snapshot(params, snapshot)
+
+    def _execute_snapshot(self, params: ContractQueryParams, snapshot: IndexSnapshot) -> dict:
         filtered = []
-        for record, units in self._table_rows():
+        for record, units in self._table_rows(snapshot):
             row = record["parsed"]
             if not row.get("contract_id"):
                 continue
@@ -203,6 +214,7 @@ class ContractQueryTool(BaseTool):
             "returned_count": min(len(filtered), 10),
             "truncated": len(filtered) > 10,
             "query_scope": "all_indexed_table_rows",
+            "index_revision": snapshot.revision,
         }
 
 
@@ -249,12 +261,18 @@ class CustomerHoldingTool(BaseTool):
 
     def execute(self, **kwargs) -> dict:
         params = CustomerHoldingParams(**kwargs)
+        with self.retriever.read_snapshot() as snapshot:
+            if snapshot is None:
+                raise RuntimeError("索引未初始化，请先构建索引")
+            return self._execute_snapshot(params, snapshot)
+
+    def _execute_snapshot(self, params: CustomerHoldingParams, snapshot: IndexSnapshot) -> dict:
         parsed_results = []
         totals: dict[str, Decimal] = {}
         incomplete = 0
         warnings: list[str] = []
         with localcontext(Context(prec=64)):
-            for record, units in self._table_rows():
+            for record, units in self._table_rows(snapshot):
                 row = record["parsed"]
                 if not (row.get("customer_id") or row.get("customer_name")) or not row.get("product_code"):
                     continue
@@ -292,6 +310,7 @@ class CustomerHoldingTool(BaseTool):
             "returned_count": min(len(parsed_results), 20),
             "truncated": len(parsed_results) > 20,
             "query_scope": "all_indexed_table_rows",
+            "index_revision": snapshot.revision,
         }
 
 
