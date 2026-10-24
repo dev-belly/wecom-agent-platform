@@ -350,8 +350,14 @@ async def wecom_callback(
     处理企微推送的用户消息，异步处理后回传结果
     """
     _ensure_wecom_configured()
-    body = await request.body()
-    if not body or len(body) > 128 * 1024:
+    # Enforce the limit while reading: request.body() would first buffer an
+    # arbitrarily large (including chunked) upload before checking its size.
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > 128 * 1024:
+            raise HTTPException(status_code=400, detail="企业微信回调内容无效")
+        body.extend(chunk)
+    if not body:
         raise HTTPException(status_code=400, detail="企业微信回调内容无效")
     try:
         envelope = _parse_wecom_xml(body.decode("utf-8"))

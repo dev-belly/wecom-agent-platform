@@ -141,6 +141,29 @@ def test_crypto_rejects_malformed_base64():
         decrypt_message("!" * 43, "!" * 32, "corp-id")
 
 
+@pytest.mark.asyncio
+async def test_oversized_callback_stops_reading_before_buffering_the_entire_body():
+    from fastapi import BackgroundTasks, HTTPException
+    from starlette.requests import Request
+
+    from src.main import wecom_callback
+
+    reads = 0
+
+    async def receive():
+        nonlocal reads
+        reads += 1
+        if reads > 2:
+            raise AssertionError("oversized callback must stop consuming the upload")
+        return {"type": "http.request", "body": b"x" * (70 * 1024), "more_body": True}
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    with patch("src.main._ensure_wecom_configured"), pytest.raises(HTTPException) as error:
+        await wecom_callback(request, BackgroundTasks(), "s" * 40, "1", "nonce")
+    assert error.value.status_code == 400
+    assert reads == 2
+
+
 def test_direct_python_entrypoint_stays_on_loopback():
     main_file = Path(__file__).parents[1] / "src/main.py"
     with patch("uvicorn.run") as run:

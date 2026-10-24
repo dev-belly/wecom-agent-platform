@@ -221,6 +221,41 @@ def test_wecom_signature_and_decryption():
 
 
 @pytest.mark.asyncio
+async def test_chunked_callback_accepts_the_size_boundary_and_queues_authenticated_text():
+    from fastapi import BackgroundTasks
+    from starlette.requests import Request
+
+    from src.main import wecom_callback
+
+    token, timestamp, nonce = "callback-token", "1720000000", "nonce"
+    key = bytes(range(32))
+    encrypted = _encrypt_wecom_message(
+        key,
+        "<xml><MsgType>text</MsgType><Content>hello</Content><FromUserName>alice</FromUserName></xml>",
+        "corp-id",
+    )
+    signature = hashlib.sha1("".join(sorted((token, timestamp, nonce, encrypted))).encode()).hexdigest()
+    envelope = f"<xml><Encrypt>{encrypted}</Encrypt></xml>".encode()
+    body = envelope + b" " * (128 * 1024 - len(envelope))
+    chunks = iter((body[:70 * 1024], body[70 * 1024:]))
+
+    async def receive():
+        chunk = next(chunks)
+        return {"type": "http.request", "body": chunk, "more_body": len(chunk) == 70 * 1024}
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    background_tasks = BackgroundTasks()
+    with patch("src.main.settings.wecom_token", token), patch(
+        "src.main.settings.wecom_encoding_aes_key", base64.b64encode(key).decode().rstrip("="),
+    ), patch("src.main.settings.wecom_corp_id", "corp-id"):
+        result = await wecom_callback(request, background_tasks, signature, timestamp, nonce)
+    assert result == "success"
+    # Do not execute background tasks: they would call the real agent.
+    assert len(background_tasks.tasks) == 1
+    assert background_tasks.tasks[0].args == ("hello", "alice")
+
+
+@pytest.mark.asyncio
 async def test_chat_api_flow():
     from fastapi.testclient import TestClient
 
