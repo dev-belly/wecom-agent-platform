@@ -222,14 +222,17 @@ npm run dev          # http://localhost:5173
 ### 构建与部署
 
 ```bash
+npm audit            # 包括生产依赖和构建工具
 npm run build        # 产物输出到 web/dist/
 ```
+
+Vite 固定为 8.3.5；`web/package.json` 将 Tailwind 3 和 PostCSS nesting 使用的 `postcss-selector-parser` 覆盖为 7.1.6。该解析器覆盖跨越一个主版本，已用完整页面的生产 CSS 逐字节对照验证；调整依赖或新增样式时应重新检查测试、类型、构建与依赖审计。
 
 **已上线**：https://dev-belly.github.io/wecom-agent-platform/
 
 当前采用 **gh-pages 分支**部署（构建产物直接推送到 `gh-pages` 分支，GitHub Pages 从该分支提供服务）。该方式无需 `workflow` 权限即可发布。
 
-`.github/workflows/ci.yml` 会验证后端 lint、测试、wheel 安装和前端类型检查/构建。Pages 发布仍需将 `web/dist/` 构建结果更新到 `gh-pages` 分支。
+`.github/workflows/ci.yml` 会验证后端 lint、测试、wheel 安装和前端测试、完整依赖审计、类型检查与构建。Pages 发布仍需将 `web/dist/` 构建结果更新到 `gh-pages` 分支。
 
 网页支持两种模式：
 - **Demo 模式**（默认）：内置样例数据，模拟检索链路与工具调用追踪；指标为演示值
