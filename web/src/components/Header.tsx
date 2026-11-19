@@ -7,8 +7,8 @@ interface Props {
   setBackendUrl: (u: string) => void
   apiKey: string
   setApiKey: (key: string) => void
-  view: 'chat' | 'quant'
-  setView: (v: 'chat' | 'quant') => void
+  view: 'chat' | 'quant' | 'contracts'
+  setView: (v: 'chat' | 'quant' | 'contracts') => void
 }
 
 export default function Header({
@@ -24,7 +24,7 @@ export default function Header({
   const [editing, setEditing] = useState(false)
 
   return (
-    <header className="flex items-center gap-3 px-4 py-3 border-b border-line bg-surface/40">
+    <header className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-line bg-surface/40">
       <div className="flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-teal/15 border border-teal/30 flex items-center justify-center font-mono font-bold text-teal">
           A
@@ -39,7 +39,7 @@ export default function Header({
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-line overflow-hidden text-xs">
           <button
             onClick={() => setView('chat')}
@@ -48,6 +48,15 @@ export default function Header({
             }`}
           >
             对话
+          </button>
+          <button
+            onClick={() => setView('contracts')}
+            aria-pressed={view === 'contracts'}
+            className={`px-3 py-1.5 transition ${
+              view === 'contracts' ? 'bg-teal/20 text-teal' : 'text-muted hover:text-fg'
+            }`}
+          >
+            合同查询
           </button>
           <button
             onClick={() => setView('quant')}
