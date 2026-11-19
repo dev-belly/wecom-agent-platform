@@ -279,3 +279,9 @@ Vite 固定为 8.3.5；`web/package.json` 将 Tailwind 3 和 PostCSS nesting 使
 ├── tests/                  # 单元测试 + 集成测试
 └── .github/workflows/      # 后端与前端质量检查
 ```
+
+### 浏览器合同查询
+
+在 Web 界面打开「合同查询」，可按编号、甲乙方或签约日期查找合同。Demo 内置 12 条合成记录。
+Live 使用设置中的后端地址和 API Key 调用 `POST /api/contracts/query`，需要后端已建立文档索引。
+界面分别显示匹配总数、展示条数与文件页码。

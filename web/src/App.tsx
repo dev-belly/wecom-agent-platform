@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar'
 import ChatPanel from './components/ChatPanel'
 import MetricsBar from './components/MetricsBar'
 import QuantView from './components/QuantView'
+import ContractView from './components/ContractView'
 
 const DEMO_METRICS: Metrics = {
   recallAt10: 0.91,
@@ -21,7 +22,7 @@ export default function App() {
     try { return sessionStorage.getItem('wecom-agent-api-key') ?? '' }
     catch { return '' }
   })
-  const [view, setView] = useState<'chat' | 'quant'>('chat')
+  const [view, setView] = useState<'chat' | 'quant' | 'contracts'>('chat')
   const [messages, setMessages] = useState<Message[]>(() => [welcomeMessage()])
   const [isLoading, setIsLoading] = useState(false)
   const [metrics, setMetrics] = useState<Metrics>(DEMO_METRICS)
@@ -139,7 +140,10 @@ export default function App() {
           view={view}
           setView={setView}
         />
-        {view === 'quant' ? (
+        {view === 'contracts' ? (
+          <ContractView key={JSON.stringify([mode, backendUrl, apiKey])}
+            mode={mode} backendUrl={backendUrl} apiKey={apiKey} />
+        ) : view === 'quant' ? (
           <QuantView />
         ) : (
           <ChatPanel key={mode} messages={messages} isLoading={isLoading} onSend={handleSend} />
