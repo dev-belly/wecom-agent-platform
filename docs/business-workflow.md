@@ -30,7 +30,9 @@ uv run --locked pytest tests/test_business_queries.py -q
 - `min_amount` 是指定币种的基本单位金额，必须同时给出 `currency`；不会换算汇率。缺失币种、含糊金额和单位冲突不能满足金额筛选。
 - 金额支持明确数字、合法千分位、`元/万元/亿元` 或 `万/亿` 倍数。含“元”的中文单位明确表示 CNY；裸数字不推断币种。`约 100 万`、百分比、科学计数文本及歧义货币符号被拒绝。
 - 起始日晚于截止日、空白条件、未支持的筛选字段直接返回 422，不悄悄忽略。
-- `count` 覆盖全部匹配记录；列表最多返回 10 条，`returned_count` 和 `truncated` 标明展示边界。
+- `count` 覆盖全部匹配记录。每页最多返回 10 条，`returned_count` 是本页条数，`truncated` 表示本页只包含部分匹配记录。
+- 请求默认从偏移量 0 开始。按原条件重复 POST，并在 URL 中传入上一页的 `next_offset` 和首次响应中的 `index_revision`，即可继续查询，如 `/api/contracts/query?offset=10&index_revision=<版本>`。末页的 `next_offset` 为 `null`。
+- 索引重建后，携带旧版本的请求返回 409。重新提交原筛选条件可从新索引的第一页开始。缺少版本的非零偏移量请求返回 422。
 
 `POST /api/holdings/query` 接受 `customer_id`、`customer_name`、`product_code`，都使用精确匹配，多条件同时满足。
 

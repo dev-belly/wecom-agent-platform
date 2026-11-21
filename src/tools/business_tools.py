@@ -162,6 +162,10 @@ class BaseTool:
 
 # ── 8 类业务工具实现 ──────────────────────────────────
 
+class ContractIndexChanged(RuntimeError):
+    """The query's index version has been replaced."""
+
+
 class ContractQueryTool(BaseTool):
     """工具 1: 合同信息查询"""
 
@@ -171,14 +175,22 @@ class ContractQueryTool(BaseTool):
     parameters_model = ContractQueryParams
 
     def execute(self, **kwargs) -> dict:
-        params = ContractQueryParams(**kwargs)
+        return self.query(ContractQueryParams(**kwargs))
+
+    def query(
+        self, params: ContractQueryParams, *, offset: int = 0, index_revision: str | None = None,
+    ) -> dict:
         with self.retriever.read_snapshot() as snapshot:
             if snapshot is None:
                 raise RuntimeError("索引未初始化，请先构建索引")
-            return self._execute_snapshot(params, snapshot)
+            if index_revision is not None and snapshot.revision != index_revision:
+                raise ContractIndexChanged("文档索引已更新，请重新查询第一页")
+            return self._execute_snapshot(params, snapshot, offset)
 
-    def _execute_snapshot(self, params: ContractQueryParams, snapshot: IndexSnapshot) -> dict:
-        filtered = []
+    def _execute_snapshot(self, params: ContractQueryParams, snapshot: IndexSnapshot, offset: int) -> dict:
+        count = 0
+        page_end = offset + 10
+        results = []
         for record, units in self._table_rows(snapshot):
             row = record["parsed"]
             if not row.get("contract_id"):
@@ -204,15 +216,17 @@ class ContractQueryTool(BaseTool):
                     continue
                 record["amount"] = decimal_text(amount)
                 record["currency"] = currency
-            filtered.append(record)
+            if offset <= count < page_end:
+                results.append(record)
+            count += 1
 
         return {
             "tool": self.name,
             "params": params.model_dump(mode="json", exclude_none=True),
-            "count": len(filtered),
-            "results": filtered[:10],
-            "returned_count": min(len(filtered), 10),
-            "truncated": len(filtered) > 10,
+            "count": count,
+            "results": results,
+            "returned_count": len(results),
+            "truncated": count > len(results),
             "query_scope": "all_indexed_table_rows",
             "index_revision": snapshot.revision,
         }

@@ -271,6 +271,61 @@ def test_business_http_routes_explain_missing_index():
     assert response.json()["detail"] == "请先构建文档索引"
 
 
+def test_contract_http_pages_preserve_filter_order_and_original_index(build_index):
+    import src.main as main
+
+    rows = [contract(f"HT{i:03}") for i in range(25)]
+    retriever = build_index([*rows[:10], contract("EXCLUDED", 甲方="其他公司"), *rows[10:]])
+    filters = {"party_a": "示例银行"}
+    route = "/api/contracts/query"
+    # Skip lifespan model warm-up and use the actual in-memory index.
+    client = TestClient(main.app)
+    with (
+        patch.object(main, "retriever", retriever),
+        patch.object(main.settings, "env", "production"),
+        patch.object(main.settings, "api_key", "k" * 32),
+    ):
+        headers = {"Authorization": "Bearer " + "k" * 32}
+
+        def get_page(offset, index_revision=None):
+            params = {"offset": offset}
+            if index_revision is not None:
+                params["index_revision"] = index_revision
+            return client.post(route, params=params, json=filters, headers=headers)
+
+        first_response = client.post(route, json=filters, headers=headers)
+        assert first_response.status_code == 200
+        first = first_response.json()
+        version = first["index_revision"]
+        assert (first["count"], first["returned_count"], first["offset"], first["next_offset"]) == (25, 10, 0, 10)
+        pages = [first]
+        for offset, count, next_offset in ((10, 10, 20), (20, 5, None), (25, 0, None)):
+            response = get_page(offset, version)
+            assert response.status_code == 200
+            page = response.json()
+            assert (page["count"], page["returned_count"], page["offset"]) == (25, count, offset)
+            assert page["next_offset"] == next_offset and page["index_revision"] == version
+            pages.append(page)
+        assert [
+            row["parsed"]["contract_id"] for page in pages for row in page["results"]
+        ] == [f"HT{i:03}" for i in range(25)]
+        assert pages[1]["results"][0]["metadata"]["row_index"] == 11
+        assert get_page(-1, version).status_code == 422
+        assert get_page(10).status_code == 422
+
+        retriever.build_index_from_parsed([ParsedDocument(
+            "new.pdf", 1, [ParsedTable(1, 0, [], [contract("NEW")])],
+        )])
+        stale = get_page(10, version)
+        assert stale.status_code == 409
+        assert stale.json()["detail"] == "文档索引已更新，请重新查询第一页"
+        refreshed = get_page(0)
+        assert refreshed.status_code == 200
+        assert refreshed.json()["index_revision"] != version
+        assert refreshed.json()["results"][0]["parsed"]["contract_id"] == "NEW"
+    client.close()
+
+
 @pytest.mark.asyncio
 async def test_agent_fallback_preserves_total_limit_and_source_evidence(build_index):
     from src.agents.financial_agent import FinancialAgentGraph
