@@ -15,6 +15,8 @@ const DEMO_METRICS: Metrics = {
   lastLatencyMs: 412,
 }
 
+type View = 'chat' | 'quant' | 'contracts'
+
 export default function App() {
   const [mode, setMode] = useState<'demo' | 'live'>('demo')
   const [backendUrl, setBackendUrl] = useState('http://localhost:9000')
@@ -22,7 +24,10 @@ export default function App() {
     try { return sessionStorage.getItem('wecom-agent-api-key') ?? '' }
     catch { return '' }
   })
-  const [view, setView] = useState<'chat' | 'quant' | 'contracts'>('chat')
+  const [view, setView] = useState<View>(() => {
+    const requested = new URLSearchParams(window.location.search).get('view')
+    return requested === 'contracts' || requested === 'quant' ? requested : 'chat'
+  })
   const [messages, setMessages] = useState<Message[]>(() => [welcomeMessage()])
   const [isLoading, setIsLoading] = useState(false)
   const [metrics, setMetrics] = useState<Metrics>(DEMO_METRICS)
@@ -126,6 +131,14 @@ export default function App() {
     })
   }
 
+  function changeView(nextView: View) {
+    setView(nextView)
+    const url = new URL(window.location.href)
+    if (nextView === 'chat') url.searchParams.delete('view')
+    else url.searchParams.set('view', nextView)
+    window.history.replaceState(window.history.state, '', url)
+  }
+
   return (
     <div className="flex h-screen bg-ink text-fg">
       <Sidebar activeTool={activeTool} />
@@ -138,7 +151,7 @@ export default function App() {
           apiKey={apiKey}
           setApiKey={setApiKey}
           view={view}
-          setView={setView}
+          setView={changeView}
         />
         {view === 'contracts' ? (
           <ContractView key={JSON.stringify([mode, backendUrl, apiKey])}

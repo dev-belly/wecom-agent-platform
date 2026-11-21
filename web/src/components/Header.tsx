@@ -43,6 +43,7 @@ export default function Header({
         <div className="flex rounded-lg border border-line overflow-hidden text-xs">
           <button
             onClick={() => setView('chat')}
+            aria-pressed={view === 'chat'}
             className={`px-3 py-1.5 transition ${
               view === 'chat' ? 'bg-teal/20 text-teal' : 'text-muted hover:text-fg'
             }`}
@@ -60,6 +61,7 @@ export default function Header({
           </button>
           <button
             onClick={() => setView('quant')}
+            aria-pressed={view === 'quant'}
             className={`px-3 py-1.5 transition ${
               view === 'quant' ? 'bg-teal/20 text-teal' : 'text-muted hover:text-fg'
             }`}

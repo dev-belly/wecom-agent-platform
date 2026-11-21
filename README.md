@@ -282,6 +282,10 @@ Vite 固定为 8.3.5；`web/package.json` 将 Tailwind 3 和 PostCSS nesting 使
 
 ### 浏览器合同查询
 
-在 Web 界面打开「合同查询」，可按编号、甲乙方或签约日期查找合同。Demo 内置 12 条合成记录。
-Live 使用设置中的后端地址和 API Key 调用 `POST /api/contracts/query`，需要后端已建立文档索引。
-界面分别显示匹配总数、展示条数与文件页码。
+打开[合同查询演示](https://dev-belly.github.io/wecom-agent-platform/?view=contracts)即可查看 12 条合成合同。
+点「下一页」查看最后两条及其来源页码，或输入 `DEMO-001` 试查单个合同。
+编号精确匹配，甲乙方支持名称筛选，签约日期包含起止两日。
+
+Live 模式调用已建索引的 `POST /api/contracts/query`。界面显示匹配总数和当前记录范围，每页最多 10 条。
+翻页请求沿用已提交的筛选条件和索引版本。索引重建后，页面会提示重新查询。
+[请求与响应字段](docs/business-workflow.md#业务规则与返回契约)

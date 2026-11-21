@@ -8,7 +8,7 @@ import time
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from xml.etree import ElementTree
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
@@ -24,6 +24,7 @@ from src.parsers.pdf_parser import FinancialPDFParser
 from src.retrieval.hybrid_retriever import HybridRetriever
 from src.services.wecom_crypto import WeComCryptoError, decrypt_message, verify_signature
 from src.tools.business_tools import (
+    ContractIndexChanged,
     ContractQueryParams,
     ContractQueryTool,
     CustomerHoldingParams,
@@ -276,14 +277,31 @@ def _business_retriever() -> HybridRetriever:
 
 
 @app.post("/api/contracts/query", dependencies=[Depends(require_api_key)])
-async def query_contracts(req: ContractQueryParams):
+def query_contracts(
+    req: ContractQueryParams,
+    offset: Annotated[int, Query(ge=0, description="从零开始的匹配结果偏移量")] = 0,
+    index_revision: Annotated[str | None, Query(min_length=1, description="首次查询返回的索引版本")] = None,
+):
     """Deterministically query all indexed contract rows without an LLM.
 
     IDs match exactly, party names use containment, dates are inclusive, and
-    monetary thresholds require a currency. Results include their source page.
+    monetary thresholds require a currency. Each page includes its source
+    positions and uses one index revision for the results and total count.
     """
+    if offset and index_revision is None:
+        raise HTTPException(status_code=422, detail="翻页时请提供首次查询返回的索引版本")
     try:
-        return ContractQueryTool(_business_retriever()).execute(**req.model_dump(exclude_none=True))
+        result = ContractQueryTool(_business_retriever()).query(
+            req, offset=offset, index_revision=index_revision,
+        )
+        next_offset = offset + result["returned_count"]
+        return {
+            **result,
+            "offset": offset,
+            "next_offset": next_offset if next_offset < result["count"] else None,
+        }
+    except ContractIndexChanged as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="请先构建文档索引") from exc
     except ValueError as exc:
