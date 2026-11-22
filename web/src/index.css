@@ -9,23 +9,160 @@ body,
 }
 
 body {
-  margin: 0;
-  background: #0d1117;
-  color: #e6edf3;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  @apply bg-ink text-fg;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI',
+    'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-/* 细滚动条 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+:focus-visible {
+  outline: 2px solid #005fd9;
+  outline-offset: 3px;
 }
-::-webkit-scrollbar-thumb {
-  background: #30363d;
-  border-radius: 4px;
+
+:root {
+  color-scheme: light;
+  --workspace-width: 78rem;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #484f58;
+
+.workspace-header {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  border-bottom: 1px solid #dde4ef;
+  background: rgb(255 255 255 / 88%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+.workspace-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  max-width: var(--workspace-width);
+  min-height: 4.375rem;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+.workspace-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.975rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+
+.workspace-brand-mark {
+  display: grid;
+  width: 2.1rem;
+  height: 2.1rem;
+  place-items: center;
+  border-radius: 0.68rem;
+  background: linear-gradient(145deg, #257cf4, #084cc0);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 35%), 0 2px 6px rgb(9 67 165 / 20%);
+  color: white;
+  font-size: 1.15rem;
+}
+
+.workspace-segmented {
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.2rem;
+  border: 1px solid #e4eaf3;
+  border-radius: 0.78rem;
+  background: #f0f3f8;
+}
+
+.workspace-mode {
+  justify-self: end;
+}
+
+.workspace-segmented button {
+  min-height: 2rem;
+  padding-inline: 0.8rem;
+  border-radius: 0.56rem;
+  color: #526178;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.workspace-segmented button:hover {
+  color: #123365;
+}
+
+.workspace-segmented button[aria-pressed="true"] {
+  background: white;
+  color: #0056c6;
+  box-shadow: 0 1px 3px rgb(26 50 90 / 13%);
+}
+
+.workspace-connection {
+  border-top: 1px solid #e4eaf3;
+  background: #f8fafd;
+}
+
+.workspace-connection-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 17rem));
+  justify-content: end;
+  gap: 0.75rem;
+  max-width: var(--workspace-width);
+  margin-inline: auto;
+  padding: 0.65rem 1.5rem;
+}
+
+.workspace-connection-fields label {
+  display: grid;
+  gap: 0.25rem;
+  color: #42526b;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.workspace-connection-fields input {
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #d6dfec;
+  border-radius: 0.55rem;
+  background: white;
+  color: #192336;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+@media (max-width: 40rem) {
+  .workspace-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.55rem;
+    padding: 0.65rem 1rem;
+  }
+
+  .workspace-tabs {
+    grid-area: 2 / 1 / 3 / -1;
+  }
+
+  .workspace-tabs button {
+    flex: 1;
+  }
+
+  .workspace-connection-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-inline: 1rem;
+  }
+
+  .workspace-connection-fields input {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-segmented button {
+    transition: none;
+  }
 }

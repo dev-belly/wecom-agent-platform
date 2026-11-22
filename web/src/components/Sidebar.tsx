@@ -6,7 +6,7 @@ interface Props {
 
 export default function Sidebar({ activeTool }: Props) {
   return (
-    <aside className="w-60 shrink-0 hidden md:flex flex-col border-r border-line bg-surface/40">
+    <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-surface/70 lg:flex">
       <div className="px-4 py-3 border-b border-line">
         <div className="text-xs text-muted">业务工具</div>
         <div className="text-sm font-medium text-fg">11 类金融查询能力</div>

@@ -1,11 +1,10 @@
-import type { UIEvent } from 'react'
 import type { QuantData, BacktestData, LeaderRow, ReportData, StockFactor } from '../types'
 import { QUANT_DATA } from '../demo/quant'
 
 // 中国习惯：涨=红(rose)，跌=绿(emerald)
 function signColor(v: number): string {
   if (v > 0) return 'text-rose'
-  if (v < 0) return 'text-emerald-400'
+  if (v < 0) return 'text-emerald-700'
   return 'text-muted'
 }
 function pct(v: number, d = 2): string {
@@ -21,7 +20,7 @@ function KpiRow({ bt }: { bt: BacktestData }) {
     { label: '累计收益', value: pct(s.total_return_pct / 100), color: signColor(s.total_return_pct) },
     { label: '年化收益', value: pct(s.annual_return_pct / 100), color: signColor(s.annual_return_pct) },
     { label: '夏普比率', value: num(s.sharpe), color: 'text-fg' },
-    { label: '最大回撤', value: pct(s.max_drawdown_pct / 100), color: 'text-emerald-400' },
+    { label: '最大回撤', value: pct(s.max_drawdown_pct / 100), color: 'text-emerald-700' },
     { label: '胜率', value: pct(s.win_rate_pct / 100, 0), color: 'text-fg' },
     { label: '交易笔数', value: String(s.total_trades), color: 'text-fg' },
   ]
@@ -49,8 +48,9 @@ function Leaderboard({ rows }: { rows: LeaderRow[] }) {
   return (
     <section>
       <h2 className="text-sm font-semibold text-fg mb-3">多因子综合排行榜（截面 z-score 合成）</h2>
-      <div className="rounded-xl border border-line overflow-hidden">
-        <table className="w-full text-sm">
+      <div role="region" aria-label="多因子综合排行榜" tabIndex={0}
+        className="overflow-x-auto rounded-xl border border-line bg-surface">
+        <table className="w-full min-w-[40rem] text-sm">
           <thead>
             <tr className="bg-surface2/70 text-muted text-[11px] uppercase">
               <th className="text-left px-4 py-2">排名</th>
@@ -112,7 +112,7 @@ function RiskCards({ stocks }: { stocks: Record<string, StockFactor> }) {
           const cells: { k: string; v: string; c?: string }[] = [
             { k: '夏普', v: num(r.sharpe), c: 'text-fg' },
             { k: '索提诺', v: num(r.sortino), c: 'text-fg' },
-            { k: '最大回撤', v: pct(r.max_drawdown), c: 'text-emerald-400' },
+            { k: '最大回撤', v: pct(r.max_drawdown), c: 'text-emerald-700' },
             { k: 'Beta', v: num(r.beta), c: 'text-fg' },
             { k: '年化Alpha', v: pct(r.alpha), c: signColor(r.alpha) },
             { k: '年化波动', v: pct(r.annual_vol), c: 'text-fg' },
@@ -247,20 +247,6 @@ function BacktestNote({ bt }: { bt: BacktestData }) {
 
 function BacktestDashboard({ bt }: { bt: BacktestData }) {
   const url = import.meta.env.BASE_URL + 'backtest/momentum_688001SH.html'
-  const onLoad = (e: UIEvent<HTMLIFrameElement>) => {
-    // 同源：确保仪表盘以暗色呈现，贴合整体 UI
-    try {
-      const doc = e.currentTarget.contentDocument
-      if (doc) {
-        doc.documentElement.setAttribute('data-theme', 'dark')
-        const apply = () => doc.documentElement.setAttribute('data-theme', 'dark')
-        const obs = new MutationObserver(apply)
-        obs.observe(doc.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-      }
-    } catch {
-      /* 跨域安全限制，忽略 */
-    }
-  }
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
@@ -273,7 +259,6 @@ function BacktestDashboard({ bt }: { bt: BacktestData }) {
         <iframe
           src={url}
           title={`回测仪表盘 ${bt.meta.symbol}`}
-          onLoad={onLoad}
           className="w-full block"
           style={{ height: '1280px', border: 0 }}
         />
@@ -289,10 +274,10 @@ function BacktestDashboard({ bt }: { bt: BacktestData }) {
 export default function QuantView() {
   const q: QuantData = QUANT_DATA
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-6 py-6 space-y-8">
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-[var(--workspace-width)] space-y-8 px-4 py-6 sm:px-6">
         <div>
-          <h1 className="text-lg font-semibold text-fg">量化因子与财报分析</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-fg">量化因子与财报分析</h1>
           <p className="text-[12px] text-muted mt-1">
             风险因子挖掘 · 多因子排行榜 · 财报三大表解析与异常预警 · 因子策略回测。
             以下数值由 <span className="text-teal">src/factors</span> 引擎在合成数据上真实计算生成。

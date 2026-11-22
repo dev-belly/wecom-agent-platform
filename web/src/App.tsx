@@ -140,28 +140,32 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-ink text-fg">
-      <Sidebar activeTool={activeTool} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header
-          mode={mode}
-          setMode={changeMode}
-          backendUrl={backendUrl}
-          setBackendUrl={setBackendUrl}
-          apiKey={apiKey}
-          setApiKey={setApiKey}
-          view={view}
-          setView={changeView}
-        />
-        {view === 'contracts' ? (
-          <ContractView key={JSON.stringify([mode, backendUrl, apiKey])}
-            mode={mode} backendUrl={backendUrl} apiKey={apiKey} />
-        ) : view === 'quant' ? (
-          <QuantView />
-        ) : (
-          <ChatPanel key={mode} messages={messages} isLoading={isLoading} onSend={handleSend} />
-        )}
-        <MetricsBar metrics={metrics} mode={mode} />
+    <div className="flex h-dvh flex-col bg-ink text-fg">
+      <Header
+        mode={mode}
+        setMode={changeMode}
+        backendUrl={backendUrl}
+        setBackendUrl={setBackendUrl}
+        apiKey={apiKey}
+        setApiKey={setApiKey}
+        view={view}
+        setView={changeView}
+      />
+      <div className="flex min-h-0 flex-1">
+        {view === 'chat' && <Sidebar activeTool={activeTool} />}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {view === 'contracts' ? (
+            <ContractView key={JSON.stringify([mode, backendUrl, apiKey])}
+              mode={mode} backendUrl={backendUrl} apiKey={apiKey} />
+          ) : view === 'quant' ? (
+            <QuantView />
+          ) : (
+            <>
+              <ChatPanel key={mode} messages={messages} isLoading={isLoading} onSend={handleSend} />
+              <MetricsBar metrics={metrics} mode={mode} />
+            </>
+          )}
+        </main>
       </div>
     </div>
   )

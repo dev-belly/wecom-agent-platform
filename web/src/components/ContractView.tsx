@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CONTRACT_PAGE_SIZE, ContractQueryError, queryContracts, queryExampleContracts } from '../api/contracts'
-import type { ContractFilters, ContractPage, ContractResults } from '../api/contracts'
+import type { ContractFilters, ContractPage, ContractResults, ContractRow } from '../api/contracts'
+import './ContractView.css'
+
+const SAMPLE_CONTRACT_ID = 'DEMO-001'
 
 const fields = [
   ['contract_id', '合同编号', 'text'],
@@ -16,6 +19,10 @@ interface SearchResult {
   page: ContractResults
 }
 
+function initialSearch(mode: 'demo' | 'live'): SearchResult | null {
+  return mode === 'demo' ? { filters: {}, page: queryExampleContracts({}) } : null
+}
+
 function describeResults(page: ContractResults) {
   if (!page.count) return '没有符合条件的合同。'
   const total = '匹配 ' + page.count + ' 条'
@@ -27,13 +34,48 @@ function describeResults(page: ContractResults) {
   return page.truncated && page.index_revision === null ? summary + '可缩小筛选范围查看其他记录。' : summary
 }
 
+function ContractResult({ parsed, metadata }: ContractRow) {
+  return (
+    <details className="contract-result">
+      <summary className="contract-result-grid">
+        <span className="contract-number">
+          <span className="sr-only">合同编号 </span>
+          {parsed.contract_id || '编号缺失'}
+        </span>
+        <span>
+          <span className="contract-row-label">甲方 </span>
+          {parsed.party_a || '—'}
+        </span>
+        <span>
+          <span className="contract-row-label">乙方 </span>
+          {parsed.party_b || '—'}
+        </span>
+        <span className="contract-date">
+          <span className="contract-row-label">签约日 </span>
+          {parsed.sign_date || '—'}
+        </span>
+        <span className="contract-source-toggle">
+          <span className="sr-only">来源 </span>
+          {metadata.page == null ? '查看' : '第 ' + metadata.page + ' 页'}
+          <span className="contract-chevron" aria-hidden="true" />
+        </span>
+      </summary>
+      <dl className="contract-provenance">
+        <div><dt>来源文件</dt><dd>{metadata.source || '—'}</dd></div>
+        <div><dt>页码</dt><dd>{metadata.page ?? '—'}</dd></div>
+        <div><dt>表格</dt><dd>{metadata.table_index == null ? '—' : metadata.table_index + 1}</dd></div>
+        <div><dt>行号</dt><dd>{metadata.row_index == null ? '—' : metadata.row_index + 1}</dd></div>
+      </dl>
+    </details>
+  )
+}
+
 export default function ContractView({ mode, backendUrl, apiKey }: {
   mode: 'demo' | 'live'; backendUrl: string; apiKey: string
 }) {
   const active = useRef<AbortController | null>(null)
-  const [current, setCurrent] = useState<SearchResult | null>(() =>
-    mode === 'demo' ? { filters: {}, page: queryExampleContracts({}) } : null,
-  )
+  const formRef = useRef<HTMLFormElement>(null)
+  const [current, setCurrent] = useState<SearchResult | null>(() => initialSearch(mode))
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   useEffect(() => () => active.current?.abort(), [])
@@ -56,6 +98,23 @@ export default function ContractView({ mode, backendUrl, apiKey }: {
       return
     }
     void load(filters)
+  }
+
+  function resetSearch() {
+    formRef.current?.reset()
+    active.current?.abort()
+    setCurrent(initialSearch(mode))
+    setMessage('')
+    setLoading(false)
+  }
+
+  function searchExample() {
+    const form = formRef.current
+    const contractId = form?.elements.namedItem('contract_id')
+    if (!form || !(contractId instanceof HTMLInputElement)) return
+    form.reset()
+    contractId.value = SAMPLE_CONTRACT_ID
+    form.requestSubmit()
   }
 
   async function load(filters: ContractFilters, page?: ContractPage) {
@@ -87,46 +146,81 @@ export default function ContractView({ mode, backendUrl, apiKey }: {
 
   const page = current?.page
   const showPagination = page?.index_revision && (page.offset > 0 || page.next_offset !== null)
+  const status = loading ? '查询中…' : page ? describeResults(page) : '填写筛选条件后开始查询。'
 
-  return <section className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-    <h1 className="text-xl font-semibold">合同查询</h1>
-    <p className="mt-1 text-sm text-muted">
-      {mode === 'demo' ? '合成台账共 12 条记录，可试查 DEMO-001。' : '查询已索引合同，签约日期包含起止两日。'}
-    </p>
-    <form onSubmit={search} className="my-4 grid gap-3 rounded-lg border border-line bg-surface p-4 sm:grid-cols-2">
-      {fields.map(([name, label, type]) => <label key={name} className="grid gap-1 text-sm">
-        {label}
-        <input name={name} type={type} maxLength={200}
-          className="min-w-0 rounded border border-line bg-ink p-2 text-fg" />
-      </label>)}
-      <button disabled={loading} className="self-end rounded bg-teal/20 p-2 text-teal disabled:opacity-60">
-        {loading ? '查询中…' : '查询合同'}
-      </button>
-    </form>
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <p role="status" className="text-sm">
-        {message || (loading ? '查询中…' : page && describeResults(page))}
-      </p>
-      {showPagination && <nav aria-label="合同结果分页" className="flex gap-2">
-        <button type="button" disabled={loading || !page.offset}
-          onClick={() => changePage(Math.max(0, page.offset - CONTRACT_PAGE_SIZE))}
-          className="rounded border border-line px-3 py-1.5 text-sm text-fg hover:bg-surface disabled:opacity-50">上一页</button>
-        <button type="button" disabled={loading || page.next_offset === null}
-          onClick={() => changePage(page.next_offset)}
-          className="rounded border border-line px-3 py-1.5 text-sm text-fg hover:bg-surface disabled:opacity-50">下一页</button>
-      </nav>}
-    </div>
-    <ul aria-label="合同结果" aria-busy={loading} className="grid gap-2">
-      {page?.results.map(({ parsed, metadata }, index) => <li key={page.offset + index}
-        className="break-words rounded-lg border border-line bg-surface p-3 text-sm">
-        <strong>{parsed.contract_id || '编号缺失'}</strong>
-        <p>{parsed.party_a || '甲方缺失'} → {parsed.party_b || '乙方缺失'} · {parsed.sign_date || '日期缺失'}</p>
-        <p className="text-muted">{metadata.source || '来源缺失'}
-          {metadata.page != null && ' · 第 ' + metadata.page + ' 页'}
-          {metadata.table_index != null && ' · 表 ' + (metadata.table_index + 1)}
-          {metadata.row_index != null && ' · 行 ' + (metadata.row_index + 1)}
-        </p>
-      </li>)}
-    </ul>
-  </section>
+  return (
+    <section className="contract-page" aria-labelledby="contract-title">
+      <div className="contract-workspace">
+        <div className="contract-hero">
+          <div>
+            <p className="contract-scope">{mode === 'demo' ? '合成演示数据' : '合同索引'}</p>
+            <h1 id="contract-title">合同查询</h1>
+            <p className="contract-intro">按合同编号、签约方或日期筛选，展开记录查看来源文件与页码。</p>
+          </div>
+          {mode === 'demo' && (
+            <button type="button" className="contract-example" onClick={searchExample}>
+              <span className="contract-example-icon" aria-hidden="true" />
+              <span>
+                <span className="contract-example-label">试查示例合同</span>
+                <strong>{SAMPLE_CONTRACT_ID}</strong>
+              </span>
+              <span className="contract-example-arrow" aria-hidden="true">↗</span>
+            </button>
+          )}
+        </div>
+        <form ref={formRef} onSubmit={search} className="contract-panel contract-filters" aria-labelledby="filter-heading">
+          <div className="contract-panel-heading">
+            <h2 id="filter-heading">筛选条件</h2>
+            <button type="button" className="contract-reset" onClick={resetSearch}>清空筛选</button>
+          </div>
+          <div className="contract-fields">
+            {fields.map(([name, label, type]) => (
+              <label key={name}>
+                {label}
+                <input name={name} type={type} maxLength={200}
+                  placeholder={name === 'contract_id' ? '输入完整编号' : undefined} />
+              </label>
+            ))}
+            <button type="submit" disabled={loading} className="contract-submit">
+              {loading ? '查询中…' : '查询合同'}
+            </button>
+          </div>
+        </form>
+        <section className="contract-panel" aria-labelledby="results-heading">
+          <div className="contract-panel-heading contract-results-heading">
+            <div>
+              <h2 id="results-heading">查询结果</h2>
+              <p role="status" className={message ? 'contract-status contract-error' : 'contract-status'}>
+                {message || status}
+              </p>
+            </div>
+            {showPagination && <nav aria-label="合同结果分页" className="contract-pagination">
+              <button type="button" disabled={loading || !page.offset}
+                onClick={() => changePage(Math.max(0, page.offset - CONTRACT_PAGE_SIZE))}>上一页</button>
+              <button type="button" disabled={loading || page.next_offset === null}
+                onClick={() => changePage(page.next_offset)}>下一页</button>
+            </nav>}
+          </div>
+          {page && page.results.length > 0 && (
+            <>
+              <div className="contract-result-grid contract-result-head" aria-hidden="true">
+                <span>合同编号</span>
+                <span>甲方</span>
+                <span>乙方</span>
+                <span>签约日期</span>
+                <span>来源</span>
+              </div>
+              <ul role="list" aria-label="合同结果" aria-busy={loading}>
+                {page.results.map((row, index) => (
+                  <li key={JSON.stringify([page.offset + index, row.parsed.contract_id, row.metadata])}>
+                    <ContractResult {...row} />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      </div>
+    </section>
+  )
 }
