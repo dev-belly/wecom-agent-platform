@@ -231,11 +231,16 @@
   padding: 1rem clamp(0.875rem, 2vw, 1.5rem);
 }
 
+.contract-results-heading > div {
+  min-width: 0;
+}
+
 .contract-status {
   margin-top: 0.16rem;
   color: #526178;
   font-size: 0.82rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .contract-error {

@@ -76,7 +76,7 @@ function Leaderboard({ rows }: { rows: LeaderRow[] }) {
                       <div className="flex items-center justify-center gap-1">
                         <div className="w-14 h-1.5 rounded bg-surface2 overflow-hidden">
                           <div
-                            className={`h-full ${z >= 0 ? 'bg-teal' : 'bg-rose'}`}
+                            className={`h-full ${z >= 0 ? 'bg-rose' : 'bg-emerald-700'}`}
                             style={{ width: `${(Math.abs(z) / maxAbs) * 100}%`, marginLeft: z >= 0 ? 0 : 'auto', marginRight: z >= 0 ? 'auto' : 0 }}
                           />
                         </div>
@@ -150,18 +150,21 @@ function RiskCards({ stocks }: { stocks: Record<string, StockFactor> }) {
 
 function RoeBars({ report }: { report: ReportData }) {
   const data = report.ratios
-  const max = Math.max(...data.map((d) => d.roe), 0.01)
+  const max = Math.max(...data.map((d) => Math.abs(d.roe)), 0.01)
+  const label = data.map((d) => d.year + ' 年 ' + pct(d.roe)).join('，')
   return (
-    <div className="flex items-end gap-2 h-16">
+    <div className="flex gap-2" role="img" aria-label={report.name + '历年 ROE，' + label}>
       {data.map((d) => {
-        const h = Math.max((Math.abs(d.roe) / max) * 100, 4)
+        const height = Math.abs(d.roe) / max * 50
+        const bar = d.roe < 0 ? 'top-1/2 rounded-b bg-rose' : 'bottom-1/2 rounded-t bg-teal'
         return (
-          <div key={d.year} className="flex flex-col items-center justify-end flex-1">
-            <div
-              className={`w-full rounded-t ${d.roe >= 0 ? 'bg-teal/70' : 'bg-rose/70'}`}
-              style={{ height: `${h}%` }}
-            />
-            <span className="text-[10px] text-muted mt-1">{d.year}</span>
+          <div key={d.year} className="min-w-0 flex-1 text-center">
+            <div className="relative h-16">
+              <span className="absolute inset-x-0 top-1/2 border-t border-line" />
+              <span className={`absolute inset-x-[20%] ${bar}`} style={{ height: height + '%' }} />
+            </div>
+            <span className="block text-[10px] text-muted">{d.year}</span>
+            <span className="block text-[10px] font-medium tabular-nums">{pct(d.roe)}</span>
           </div>
         )
       })}
@@ -278,9 +281,8 @@ export default function QuantView() {
       <div className="mx-auto max-w-[var(--workspace-width)] space-y-8 px-4 py-6 sm:px-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-fg">量化因子与财报分析</h1>
-          <p className="text-[12px] text-muted mt-1">
-            风险因子挖掘 · 多因子排行榜 · 财报三大表解析与异常预警 · 因子策略回测。
-            以下数值由 <span className="text-teal">src/factors</span> 引擎在合成数据上真实计算生成。
+          <p className="mt-1 text-[12px] text-muted">
+            量化演示。因子、财报和回测指标均使用合成数据。
           </p>
         </div>
         <KpiRow bt={q.backtest} />

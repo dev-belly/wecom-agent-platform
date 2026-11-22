@@ -9,7 +9,7 @@ export default function RetrievalPipeline({ chunks }: Props) {
   if (!chunks || chunks.length === 0) {
     return (
       <div className="text-xs text-muted mt-2">
-        未触发检索（通用对话，无工具调用）
+        当前响应未提供检索明细。
       </div>
     )
   }

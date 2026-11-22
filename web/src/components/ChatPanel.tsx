@@ -3,6 +3,8 @@ import type { Message } from '../types'
 import MessageBubble from './MessageBubble'
 
 interface Props {
+  visible: boolean
+  mode: 'demo' | 'live'
   messages: Message[]
   isLoading: boolean
   onSend: (text: string) => void
@@ -14,15 +16,16 @@ const SUGGESTIONS = [
   '客户 C2024001 的持仓情况',
 ]
 
-export default function ChatPanel({ messages, isLoading, onSend }: Props) {
+export default function ChatPanel({ visible, mode, messages, isLoading, onSend }: Props) {
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!visible) return
     const panel = scrollRef.current
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     panel?.scrollTo({ top: panel.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
-  }, [messages, isLoading])
+  }, [visible, messages, isLoading])
 
   const submit = () => {
     const text = input.trim()
@@ -53,7 +56,7 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
             </div>
           )}
 
-          {messages.length <= 1 && !isLoading && (
+          {mode === 'demo' && messages.length <= 1 && !isLoading && (
             <div className="pt-2">
               <div className="text-xs text-muted mb-2">试试这些提问：</div>
               <div className="flex flex-wrap gap-2">
@@ -88,7 +91,7 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
             maxLength={2000}
             placeholder="输入您的问题，Enter 发送 / Shift+Enter 换行"
             aria-label="给 Agent 的问题"
-            className="min-w-0 flex-1 resize-none rounded-xl border border-line bg-ink px-3 py-2.5 text-base text-fg focus:border-blue placeholder:text-muted sm:text-sm"
+            className="max-h-32 min-w-0 flex-1 resize-none rounded-xl border border-line bg-ink px-3 py-2.5 text-base text-fg focus:border-blue placeholder:text-muted [field-sizing:content] sm:text-sm"
           />
           <button
             onClick={submit}
