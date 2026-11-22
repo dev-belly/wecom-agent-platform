@@ -41,3 +41,22 @@ test('switching modes can abort an outstanding live request', async () => {
     globalThis.fetch = originalFetch
   }
 })
+
+test('a valid reply remains readable when optional trace fields are malformed', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    reply: '合同 001', intent: { name: 'contract_query' }, tool_used: ['contract_query'], latency_ms: '12',
+  }))
+  const reply = await sendToBackend('https://example.test', '查询合同', '')
+  assert.equal(reply.content, '合同 001')
+  assert.deepEqual(reply.trace, { intent: '', tool: '', latencyMs: 0, params: {}, retrieved: [] })
+})
+
+test('backend requests normalize a service path and report unavailable hosts', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, 'https://example.test/service/api/chat')
+    throw new TypeError('Failed to fetch')
+  })
+  await assert.rejects(sendToBackend(' https://example.test/service/ ', 'hello', ''), /无法连接后端/)
+  await assert.rejects(sendToBackend('https://example.test/?wrong=1', 'hello', ''), /后端地址须使用/)
+  assert.equal(fetch.mock.callCount(), 1)
+})

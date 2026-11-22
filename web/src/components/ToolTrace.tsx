@@ -15,6 +15,8 @@ export default function ToolTrace({ trace }: Props) {
   return (
     <div className="mt-2 rounded-lg border border-line bg-surface2/50 overflow-hidden">
       <button
+        type="button"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-surface2 transition"
       >

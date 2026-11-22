@@ -842,8 +842,8 @@
     </main>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.2/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/marked@14.1.2/marked.min.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
   <script id="report-data" type="application/json">__REPORT_DATA__</script>
   <script>
   (function () {
@@ -2552,6 +2552,16 @@
     const panelsByTab = buildPanels(modules, tabs);
     renderTabs(tabs, activeTab, panelsByTab);
     mountCharts(modules);
+
+    if (!window.marked || !window.DOMPurify) {
+      window.addEventListener('load', function () {
+        if (!window.marked || !window.DOMPurify) return;
+        document.querySelectorAll('[data-module] > .text-card').forEach(function (card) {
+          const module = modules[Number(card.parentElement.getAttribute('data-module'))];
+          card.innerHTML = renderMarkdown(module.text || t('empty_content', '暂无内容'));
+        });
+      }, { once: true });
+    }
   })();
   </script>
 </body>

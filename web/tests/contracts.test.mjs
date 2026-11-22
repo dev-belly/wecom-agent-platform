@@ -81,3 +81,25 @@ test('a rebuilt index surfaces a conflict that the browser can reset', async (t)
     (error) => error instanceof ContractQueryError && error.status === 409 && /重新查询第一页/.test(error.message),
   )
 })
+
+test('malformed nested contract fields return an error before rendering', async (t) => {
+  let row
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    count: 1, returned_count: 1, truncated: false, results: [row],
+  }))
+  for (const malformed of [
+    { parsed: { contract_id: { text: '001' } }, metadata: { page: 1 } },
+    { parsed: { contract_id: '001' }, metadata: { source: ['report.pdf'] } },
+    { parsed: { contract_id: '001' }, metadata: { row_index: '2' } },
+    { parsed: [], metadata: {} },
+  ]) {
+    row = malformed
+    await assert.rejects(
+      queryContracts('https://example.test', '', {}, new AbortController().signal),
+      /合同查询返回格式无效/,
+    )
+  }
+  row = { parsed: { contract_id: '001', sign_date: null }, metadata: { page: null, table_index: 0 } }
+  const valid = await queryContracts('https://example.test', '', {}, new AbortController().signal)
+  assert.deepEqual(valid.results, [row])
+})

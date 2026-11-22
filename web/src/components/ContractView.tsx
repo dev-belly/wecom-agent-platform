@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import type { BackendConnection } from '../api/backend'
 import { CONTRACT_PAGE_SIZE, ContractQueryError, queryContracts, queryExampleContracts } from '../api/contracts'
 import type { ContractFilters, ContractPage, ContractResults, ContractRow } from '../api/contracts'
 import './ContractView.css'
@@ -70,15 +71,23 @@ function ContractResult({ parsed, metadata }: ContractRow) {
   )
 }
 
-export default function ContractView({ mode, backendUrl, apiKey }: {
-  mode: 'demo' | 'live'; backendUrl: string; apiKey: string
+export default function ContractView({ mode, connection }: {
+  mode: 'demo' | 'live'; connection: BackendConnection
 }) {
   const active = useRef<AbortController | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const resultsHeadingRef = useRef<HTMLDivElement>(null)
   const [current, setCurrent] = useState<SearchResult | null>(() => initialSearch(mode))
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  useEffect(() => () => active.current?.abort(), [])
+  useLayoutEffect(() => {
+    if (mode === 'live') {
+      setCurrent(null)
+      setMessage('')
+      setLoading(false)
+    }
+    return () => active.current?.abort()
+  }, [connection, mode])
 
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -89,10 +98,10 @@ export default function ContractView({ mode, backendUrl, apiKey }: {
       if (value) filters[key] = value
     }
 
+    resultsHeadingRef.current?.scrollIntoView({ block: 'nearest' })
     if (filters.date_range_start && filters.date_range_end
         && filters.date_range_start > filters.date_range_end) {
       active.current?.abort()
-      setCurrent(null)
       setMessage('起始日期不能晚于截止日期。')
       setLoading(false)
       return
@@ -127,7 +136,7 @@ export default function ContractView({ mode, backendUrl, apiKey }: {
     try {
       const response = mode === 'demo'
         ? queryExampleContracts(filters, page?.offset)
-        : await queryContracts(backendUrl, apiKey, filters, controller.signal, page)
+        : await queryContracts(connection.url, connection.apiKey, filters, controller.signal, page)
       if (!controller.signal.aborted) setCurrent({ filters, page: response })
     } catch (error) {
       if (controller.signal.aborted) return
@@ -146,7 +155,7 @@ export default function ContractView({ mode, backendUrl, apiKey }: {
 
   const page = current?.page
   const showPagination = page?.index_revision && (page.offset > 0 || page.next_offset !== null)
-  const status = loading ? '查询中…' : page ? describeResults(page) : '填写筛选条件后开始查询。'
+  const status = loading ? '查询中…' : page ? describeResults(page) : '可填写筛选条件，也可直接查询全部合同。'
 
   return (
     <section className="contract-page" aria-labelledby="contract-title">
@@ -187,7 +196,7 @@ export default function ContractView({ mode, backendUrl, apiKey }: {
           </div>
         </form>
         <section className="contract-panel" aria-labelledby="results-heading">
-          <div className="contract-panel-heading contract-results-heading">
+          <div ref={resultsHeadingRef} className="contract-panel-heading contract-results-heading">
             <div>
               <h2 id="results-heading">查询结果</h2>
               <p role="status" className={message ? 'contract-status contract-error' : 'contract-status'}>

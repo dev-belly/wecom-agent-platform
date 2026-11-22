@@ -1,10 +1,13 @@
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import { normalizeBackendUrl } from '../api/backend'
+import type { BackendConnection } from '../api/backend'
+
 interface Props {
   mode: 'demo' | 'live'
   setMode: (mode: 'demo' | 'live') => void
-  backendUrl: string
-  setBackendUrl: (url: string) => void
-  apiKey: string
-  setApiKey: (key: string) => void
+  connection: BackendConnection
+  onApplyConnection: (connection: BackendConnection) => void
   view: 'chat' | 'quant' | 'contracts'
   setView: (view: 'chat' | 'quant' | 'contracts') => void
 }
@@ -15,8 +18,73 @@ const views = [
   ['quant', '量化分析'],
 ] as const
 
+function LiveSettings({ connection, onApply }: {
+  connection: BackendConnection
+  onApply: (connection: BackendConnection) => void
+}) {
+  const [address, setAddress] = useState(connection.url)
+  const [key, setKey] = useState(connection.apiKey)
+  const [error, setError] = useState('')
+  const saveEnabled = address !== connection.url || key !== connection.apiKey
+
+  function apply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    try {
+      const url = normalizeBackendUrl(address)
+      const apiKey = key.trim()
+      if (apiKey && apiKey === connection.apiKey && new URL(url).origin !== new URL(connection.url).origin) {
+        setKey('')
+        setError('请为新地址填写 API Key，或留空后再次应用。')
+        return
+      }
+      onApply({ url, apiKey })
+      setAddress(url)
+      setKey(apiKey)
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : '无法应用连接。')
+    }
+  }
+
+  return (
+    <div className="workspace-connection">
+      <form className="workspace-connection-fields" aria-label="Live 连接设置" onSubmit={apply} noValidate>
+        <label>
+          后端地址
+          <input
+            type="url"
+            value={address}
+            onChange={(event) => {
+              setAddress(event.target.value)
+              setError('')
+            }}
+            placeholder="http://localhost:9000"
+            spellCheck={false}
+          />
+        </label>
+        <label>
+          API Key
+          <input
+            type="password"
+            value={key}
+            onChange={(event) => {
+              setKey(event.target.value)
+              setError('')
+            }}
+            placeholder="当前会话"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        <button className="workspace-connection-apply" type="submit" disabled={!saveEnabled}>应用连接</button>
+        {error && <p className="workspace-connection-error" role="alert">{error}</p>}
+      </form>
+    </div>
+  )
+}
+
 export default function Header({
-  mode, setMode, backendUrl, setBackendUrl, apiKey, setApiKey, view, setView,
+  mode, setMode, connection, onApplyConnection, view, setView,
 }: Props) {
   return (
     <header className="workspace-header">
@@ -38,31 +106,7 @@ export default function Header({
         </div>
       </div>
       {mode === 'live' && (
-        <div className="workspace-connection">
-          <div className="workspace-connection-fields">
-            <label>
-              后端地址
-              <input
-                type="url"
-                value={backendUrl}
-                onChange={(event) => setBackendUrl(event.target.value)}
-                placeholder="http://localhost:9000"
-                spellCheck={false}
-              />
-            </label>
-            <label>
-              API Key
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="仅保留在当前会话"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-          </div>
-        </div>
+        <LiveSettings connection={connection} onApply={onApplyConnection} />
       )}
     </header>
   )

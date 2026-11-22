@@ -1,3 +1,5 @@
+import { backendErrorDetail, isRecord, postBackend } from './backend.ts'
+
 export interface ContractFilters {
   contract_id?: string
   party_a?: string
@@ -7,8 +9,8 @@ export interface ContractFilters {
 }
 
 export interface ContractRow {
-  parsed: { contract_id?: string; party_a?: string; party_b?: string; sign_date?: string }
-  metadata: { source?: string; page?: number; table_index?: number; row_index?: number }
+  parsed: { contract_id?: string | null; party_a?: string | null; party_b?: string | null; sign_date?: string | null }
+  metadata: { source?: string | null; page?: number | null; table_index?: number | null; row_index?: number | null }
 }
 
 export interface ContractResults {
@@ -37,41 +39,49 @@ export class ContractQueryError extends Error {
   }
 }
 
+function isContractRow(row: unknown): row is ContractRow {
+  if (!isRecord(row) || !isRecord(row.parsed) || !isRecord(row.metadata)) return false
+  const { contract_id, party_a, party_b, sign_date } = row.parsed
+  const { source, page, table_index, row_index } = row.metadata
+  return [contract_id, party_a, party_b, sign_date, source].every(
+    (value) => value == null || typeof value === 'string',
+  ) && [page, table_index, row_index].every(
+    (value) => value == null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0),
+  )
+}
+
 export async function queryContracts(
   baseUrl: string, apiKey: string, filters: ContractFilters, signal: AbortSignal, page?: ContractPage,
 ): Promise<ContractResults> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (apiKey.trim()) headers.Authorization = 'Bearer ' + apiKey.trim()
-  const endpoint = baseUrl.replace(/\/+$/, '') + '/api/contracts/query'
   const pagination = page ? '?' + new URLSearchParams({
     offset: String(page.offset), index_revision: page.index_revision,
   }) : ''
-  const response = await fetch(endpoint + pagination, {
-    method: 'POST', headers, body: JSON.stringify(filters), signal,
-  })
-  const data = await response.json().catch(() => null)
+  const response = await postBackend(baseUrl, '/api/contracts/query' + pagination, apiKey, filters, signal)
+  const data: unknown = await response.json().catch(() => null)
   if (!response.ok) {
-    const detail = typeof data?.detail === 'string' ? ' · ' + data.detail.slice(0, 160) : ''
-    throw new ContractQueryError(response.status, detail)
+    const detail = backendErrorDetail(data)
+    throw new ContractQueryError(response.status, detail ? ' · ' + detail : '')
   }
-  if (!data || !Number.isSafeInteger(data.count) || !Array.isArray(data.results)
-      || data.returned_count !== data.results.length || data.count < data.returned_count
-      || data.truncated !== (data.count > data.returned_count)
-      || data.results.some((row: ContractRow) => !row?.parsed || !row.metadata)) {
+  if (!isRecord(data)) throw new Error('合同查询返回格式无效')
+  const { count, returned_count, truncated, results } = data
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || !Array.isArray(results)
+      || returned_count !== results.length || count < returned_count
+      || truncated !== (count > returned_count) || !results.every(isContractRow)) {
     throw new Error('合同查询返回格式无效')
   }
+  const result = { ...data, count, returned_count, truncated, results }
   if (!page && data.offset === undefined && data.next_offset === undefined) {
-    return { ...data, offset: 0, next_offset: null, index_revision: null }
+    return { ...result, offset: 0, next_offset: null, index_revision: null }
   }
   const offset = page?.offset ?? 0
-  const countOnPage = Math.max(0, Math.min(CONTRACT_PAGE_SIZE, data.count - offset))
-  const nextOffset = offset + countOnPage < data.count ? offset + countOnPage : null
+  const countOnPage = Math.max(0, Math.min(CONTRACT_PAGE_SIZE, count - offset))
+  const nextOffset = offset + countOnPage < count ? offset + countOnPage : null
   if (data.offset !== offset || data.next_offset !== nextOffset || data.returned_count !== countOnPage
       || typeof data.index_revision !== 'string' || !data.index_revision
       || (page && data.index_revision !== page.index_revision)) {
     throw new Error('合同查询返回的页码或索引版本无效，请重新查询。')
   }
-  return data
+  return { ...result, offset, next_offset: nextOffset, index_revision: data.index_revision }
 }
 
 const examples: ContractRow[] = Array.from({ length: 12 }, (_, offset) => ({
