@@ -19,7 +19,9 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    const panel = scrollRef.current
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    panel?.scrollTo({ top: panel.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
   }, [messages, isLoading])
 
   const submit = () => {
@@ -31,44 +33,47 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl space-y-4 px-4 py-6 sm:px-6">
+          <h1 className="text-2xl font-bold tracking-tight">Agent 对话</h1>
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} />
+          ))}
 
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-surface border border-line">
-              <div className="flex items-center gap-1.5">
-                <Dot delay="0ms" />
-                <Dot delay="150ms" />
-                <Dot delay="300ms" />
-                <span className="text-xs text-muted ml-1">Agent 推理中…</span>
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-surface border border-line">
+                <div className="flex items-center gap-1.5">
+                  <Dot delay="0ms" />
+                  <Dot delay="150ms" />
+                  <Dot delay="300ms" />
+                  <span className="text-xs text-muted ml-1">Agent 推理中…</span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {messages.length <= 1 && !isLoading && (
-          <div className="pt-2">
-            <div className="text-xs text-muted mb-2">试试这些提问：</div>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => onSend(s)}
-                  className="px-3 py-1.5 rounded-full border border-line bg-surface2/50 text-xs text-fg/90 hover:border-blue/50 hover:text-blue transition"
-                >
-                  {s}
-                </button>
-              ))}
+          {messages.length <= 1 && !isLoading && (
+            <div className="pt-2">
+              <div className="text-xs text-muted mb-2">试试这些提问：</div>
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => onSend(s)}
+                    className="px-3 py-1.5 rounded-full border border-line bg-surface2/50 text-xs text-fg/90 hover:border-blue/50 hover:text-blue transition"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      <div className="border-t border-line px-4 py-3 bg-surface/40">
-        <div className="flex items-end gap-2">
+      <div className="border-t border-line bg-surface px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-4xl items-end gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -82,12 +87,13 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
             rows={1}
             maxLength={2000}
             placeholder="输入您的问题，Enter 发送 / Shift+Enter 换行"
-            className="flex-1 resize-none rounded-lg bg-ink border border-line px-3 py-2.5 text-sm text-fg outline-none focus:border-blue placeholder:text-muted max-h-32"
+            aria-label="给 Agent 的问题"
+            className="min-w-0 flex-1 resize-none rounded-xl border border-line bg-ink px-3 py-2.5 text-base text-fg focus:border-blue placeholder:text-muted sm:text-sm"
           />
           <button
             onClick={submit}
             disabled={isLoading || !input.trim()}
-            className="px-4 py-2.5 rounded-lg bg-blue text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue/90 transition"
+            className="shrink-0 rounded-xl bg-blue px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             发送
           </button>
@@ -100,7 +106,7 @@ export default function ChatPanel({ messages, isLoading, onSend }: Props) {
 function Dot({ delay }: { delay: string }) {
   return (
     <span
-      className="w-1.5 h-1.5 rounded-full bg-muted animate-bounce"
+      className="h-1.5 w-1.5 rounded-full bg-muted motion-safe:animate-bounce"
       style={{ animationDelay: delay }}
     />
   )

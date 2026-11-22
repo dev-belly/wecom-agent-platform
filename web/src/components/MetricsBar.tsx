@@ -17,7 +17,7 @@ function Metric({ label, value, accent }: { label: string; value: string; accent
 export default function MetricsBar({ metrics, mode }: Props) {
   const percentage = (value: number | null) => value === null ? '未评估' : `${(value * 100).toFixed(0)}%`
   return (
-    <div className="flex items-center gap-5 px-4 py-1.5 border-t border-line bg-surface/40">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-surface/70 px-4 py-2">
       <Metric label="Recall@10" value={percentage(metrics.recallAt10)} accent="text-teal" />
       <Metric label="Precision@3" value={percentage(metrics.precisionAt3)} accent="text-amber" />
       <Metric
@@ -25,7 +25,7 @@ export default function MetricsBar({ metrics, mode }: Props) {
         value={metrics.lastLatencyMs > 0 ? `${metrics.lastLatencyMs} ms` : '—'}
         accent="text-violet"
       />
-      <span className="ml-auto text-[11px] text-muted">
+      <span className="text-[11px] text-muted sm:ml-auto">
         {mode === 'demo' ? '演示指标 · 非实测结果' : '检索质量需用标注集单独评估'}
       </span>
     </div>

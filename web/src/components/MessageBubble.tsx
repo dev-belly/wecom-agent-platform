@@ -33,7 +33,7 @@ export default function MessageBubble({ message }: Props) {
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] rounded-2xl rounded-br-sm bg-blue/20 border border-blue/30 px-4 py-2.5 text-sm text-fg">
+        <div className="max-w-[78%] rounded-2xl rounded-br-sm border border-blue/15 bg-blue/10 px-4 py-2.5 text-sm text-fg [overflow-wrap:anywhere]">
           {message.content}
         </div>
       </div>
@@ -44,7 +44,7 @@ export default function MessageBubble({ message }: Props) {
     <div className="flex justify-start">
       <div className="max-w-[88%]">
         <div
-          className={`rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm border ${
+          className={`rounded-2xl rounded-bl-sm border px-4 py-2.5 text-sm [overflow-wrap:anywhere] ${
             message.error
               ? 'bg-rose/10 border-rose/30 text-rose'
               : 'bg-surface border-line text-fg/95'
