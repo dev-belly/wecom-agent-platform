@@ -102,6 +102,7 @@ export default function ContractView({ mode, connection }: {
     if (filters.date_range_start && filters.date_range_end
         && filters.date_range_start > filters.date_range_end) {
       active.current?.abort()
+      setCurrent(null)
       setMessage('起始日期不能晚于截止日期。')
       setLoading(false)
       return

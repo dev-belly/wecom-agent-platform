@@ -21,13 +21,13 @@
   gap: 1.5rem;
   overflow: hidden;
   padding: clamp(1.4rem, 4vw, 3rem);
-  border: 1px solid #244175;
+  border: 1px solid #d9e2f5;
   border-radius: 1.7rem;
   background:
-    radial-gradient(ellipse at 97% 115%, #2f6ee6 0, transparent 62%),
-    linear-gradient(118deg, #101929 8%, #14284f 68%, #2353a4 100%);
-  box-shadow: 0 12px 30px rgb(28 52 97 / 16%), inset 0 1px rgb(255 255 255 / 12%);
-  color: #fff;
+    radial-gradient(ellipse at 97% 115%, #e1ebff 0, transparent 70%),
+    linear-gradient(118deg, #fff 8%, #f3f7ff 100%);
+  box-shadow: 0 12px 30px rgb(28 52 97 / 6%);
+  color: #182946;
 }
 
 .contract-hero::after {
@@ -37,7 +37,7 @@
   right: -1rem;
   width: 32rem;
   aspect-ratio: 1;
-  border: 1px solid rgb(202 222 255 / 22%);
+  border: 1px solid rgb(119 148 211 / 24%);
   border-radius: 50%;
   box-shadow: 0 0 0 2.5rem rgb(202 222 255 / 7%), 0 0 0 5rem rgb(202 222 255 / 5%);
   transform: translateY(-50%);
@@ -45,14 +45,14 @@
 }
 
 .contract-scope {
-  color: #c8dbff;
+  color: #274f9a;
   font-size: 0.8rem;
   font-weight: 600;
 }
 
 .contract-hero h1 {
   margin-block: 0.48rem 0.7rem;
-  font-size: clamp(2.25rem, 4.4vw, 3.4rem);
+  font-size: clamp(2.3rem, 5vw, 4.2rem);
   font-weight: 700;
   letter-spacing: -0.055em;
   line-height: 1.12;
@@ -60,7 +60,7 @@
 
 .contract-intro {
   max-width: 31rem;
-  color: #e0eaff;
+  color: #4c5d77;
   font-size: 0.94rem;
   line-height: 1.65;
 }
@@ -72,10 +72,10 @@
   gap: 0.8rem;
   min-width: 13.5rem;
   padding: 0.8rem 0.95rem;
-  border: 1px solid rgb(213 230 255 / 36%);
+  border: 1px solid #cad8f1;
   border-radius: 1.05rem;
-  background: rgb(255 255 255 / 14%);
-  box-shadow: inset 0 1px rgb(255 255 255 / 14%), 0 8px 26px rgb(10 26 66 / 22%);
+  background: #fff9;
+  box-shadow: inset 0 1px rgb(255 255 255 / 14%), 0 8px 26px rgb(10 26 66 / 8%);
   backdrop-filter: blur(12px);
   text-align: left;
   transition: background-color 160ms ease, transform 160ms ease;
@@ -83,11 +83,11 @@
 
 .contract-example:hover {
   transform: translateY(-2px);
-  background: rgb(255 255 255 / 22%);
+  background: #fff;
 }
 
 .contract-example:focus-visible {
-  outline-color: #fff;
+  outline-color: #2654b1;
 }
 
 .contract-example-icon {
@@ -112,7 +112,7 @@
 
 .contract-example-label {
   display: block;
-  color: #edf4ff;
+  color: #405374;
   font-size: 0.75rem;
 }
 
@@ -125,7 +125,7 @@
 }
 
 .contract-example-arrow {
-  color: #eef5ff;
+  color: #285db8;
   font-size: 1.05rem;
 }
 
